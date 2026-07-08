@@ -57,6 +57,7 @@ dependencies {
     implementation("com.google.firebase:firebase-messaging-ktx") // للإشعارات (اختياري)
 
     // Coroutines
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
 
     // Coil لعرض الصور (avatar)

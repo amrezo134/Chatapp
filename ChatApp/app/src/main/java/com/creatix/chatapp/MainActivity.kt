@@ -23,6 +23,15 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val authViewModel = remember { AuthViewModel() }
+                    FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+                    if (task.isSuccessful) {
+                        val token = task.result
+                        val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return@addOnCompleteListener
+                        FirebaseFirestore.getInstance().collection("users")
+                            .document(userId)
+                            .update("fcmToken", token)
+                    }
+                }
 
                     // من أندرويد 13 (API 33) لازم تطلب إذن الإشعارات صراحة من المستخدم
                     val permissionLauncher = rememberLauncherForActivityResult(

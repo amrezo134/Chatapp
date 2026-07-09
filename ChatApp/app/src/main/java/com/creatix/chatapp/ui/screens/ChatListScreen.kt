@@ -19,6 +19,7 @@ import coil.compose.AsyncImage
 import com.creatix.chatapp.data.ChatUser
 import com.creatix.chatapp.viewmodel.AuthViewModel
 import com.creatix.chatapp.viewmodel.ChatViewModel
+import androidx.compose.material.icons.filled.Groups
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -26,6 +27,7 @@ fun ChatListScreen(
     authViewModel: AuthViewModel,
     chatViewModel: ChatViewModel,
     onOpenChat: (ChatUser) -> Unit,
+    onOpenGroupChat: () -> Unit,
     onLoggedOut: () -> Unit
 ) {
     val users by chatViewModel.users.collectAsState()
@@ -35,6 +37,12 @@ fun ChatListScreen(
     }
 
     Scaffold(
+        floatingActionButtonPosition = FabPosition.Start,
+        floatingActionButton = {
+            FloatingActionButton(onClick = onOpenGroupChat) {
+                Icon(Icons.Default.Groups, contentDescription = "الجروب العام")
+            }
+        },
         topBar = {
             TopAppBar(
                 title = { Text("المحادثات") },

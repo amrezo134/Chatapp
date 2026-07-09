@@ -139,7 +139,7 @@ private fun MessageBubble(message: Message, isMine: Boolean) {
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(12.dp))
-                .background(if (isMine) Color(0xFF1565C0) else Color(0xFFE0E0E0))
+                .background(if (isMine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
                 .padding(horizontal = 12.dp, vertical = 8.dp)
                 .widthIn(max = 260.dp)
         ) {

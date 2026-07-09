@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.creatix.chatapp.data.ChatUser
 import com.creatix.chatapp.data.Message
+import com.creatix.chatapp.data.GroupMessage
 import com.creatix.chatapp.repository.ChatRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,6 +20,9 @@ class ChatViewModel(
 
     private val _messages = MutableStateFlow<List<Message>>(emptyList())
     val messages: StateFlow<List<Message>> = _messages
+    
+    private val _groupMessages = MutableStateFlow<List<GroupMessage>>(emptyList())
+    val groupMessages: StateFlow<List<GroupMessage>> = _groupMessages
 
     private val _otherUserTyping = MutableStateFlow(false)
     val otherUserTyping: StateFlow<Boolean> = _otherUserTyping
@@ -62,5 +66,21 @@ class ChatViewModel(
 
     fun setTyping(chatId: String, myUid: String, isTyping: Boolean) {
         repository.setTyping(chatId, myUid, isTyping)
+    }
+    fun loadGroupMessages() {
+        viewModelScope.launch {
+            try {
+                repository.observeGroupMessages().collect { _groupMessages.value = it }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun sendGroupMessage(senderId: String, senderName: String, text: String) {
+        if (text.isBlank()) return
+        viewModelScope.launch {
+            repository.sendGroupMessage(senderId, senderName, text.trim())
+        }
     }
 }

@@ -112,8 +112,11 @@ class ChatRepository {
     private suspend fun notifyReceiver(context: Context, senderId: String, receiverId: String, text: String) {
         try {
             val receiverDoc = db.collection("users").document(receiverId).get().await()
-            val receiverToken = receiverDoc.getString("fcmToken") ?: return
-            if (receiverToken.isBlank()) return
+            val receiverToken = receiverDoc.getString("fcmToken")
+            if (receiverToken.isNullOrBlank()) {
+                logDebug("no_token", "receiver $receiverId has no fcmToken saved")
+                return
+            }
 
             val senderDoc = db.collection("users").document(senderId).get().await()
             val senderName = senderDoc.getString("displayName")?.ifBlank { null } ?: "رسالة جديدة"
@@ -127,10 +130,20 @@ class ChatRepository {
                 body = text,
                 senderId = senderId
             )
+            logDebug("success", "sent to $receiverId")
         } catch (e: Exception) {
-            // منسيبش فشل الإشعار يوقّف تجربة إرسال الرسالة
-            e.printStackTrace()
+            logDebug("error", e.message ?: e.toString())
         }
+    }
+
+    private fun logDebug(status: String, message: String) {
+        db.collection("debug_logs").add(
+            mapOf(
+                "status" to status,
+                "message" to message,
+                "timestamp" to System.currentTimeMillis()
+            )
+        )
     }
 
     // ---------------------------------------------------------------

@@ -42,7 +42,7 @@ fun ChatScreen(
     val listState = rememberLazyListState()
 
     LaunchedEffect(chatId) {
-        chatViewModel.loadMessages(chatId, myUid)
+        chatViewModel.loadMessages(chatId, myUid, otherUser.uid)
         chatViewModel.observeTyping(chatId, otherUser.uid)
     }
 

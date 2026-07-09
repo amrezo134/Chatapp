@@ -12,6 +12,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import com.creatix.chatapp.ui.theme.ChatAppTheme
 import androidx.compose.ui.Modifier
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
@@ -23,7 +24,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
+            ChatAppTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val authViewModel = remember { AuthViewModel() }
                     FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->

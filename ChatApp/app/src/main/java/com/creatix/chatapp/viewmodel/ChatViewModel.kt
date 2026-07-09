@@ -29,15 +29,19 @@ class ChatViewModel(
         }
     }
 
-    fun loadMessages(chatId: String, myUid: String) {
-        viewModelScope.launch {
-            repository.observeMessages(chatId).collect { list ->
-                _messages.value = list
-                // كل ما توصل رسائل جديدة، علّم اللي جاتلي منها على إنها اتقرت
-                repository.markMessagesAsSeen(chatId, myUid, list)
+    fun loadMessages(chatId: String, myUid: String, otherUid: String) {
+            viewModelScope.launch {
+                repository.ensureChatDocument(myUid, otherUid)
+                try {
+                    repository.observeMessages(chatId).collect { list ->
+                        _messages.value = list
+                        repository.markMessagesAsSeen(chatId, myUid, list)
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
             }
         }
-    }
 
     fun sendMessage(context: Context, senderId: String, receiverId: String, text: String) {
         if (text.isBlank()) return

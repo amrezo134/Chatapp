@@ -48,7 +48,22 @@ class ChatRepository {
             }
         awaitClose { listener.remove() }
     }
-
+    /** بيتأكد إن مستند الشات موجود (بالـ participants) قبل ما نـ observe أي حاجة جواه */
+    suspend fun ensureChatDocument(myUid: String, otherUid: String) {
+        val chatId = chatIdFor(myUid, otherUid)
+        val chatRef = db.collection("chats").document(chatId)
+        try {
+            val snapshot = chatRef.get().await()
+            if (!snapshot.exists()) {
+                chatRef.set(
+                    mapOf("participants" to listOf(myUid, otherUid)),
+                    SetOptions.merge()
+                ).await()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
     /** إرسال رسالة (لازم مستند الشات يتعمل الأول عشان قواعد الأمان) */
     suspend fun sendMessage(context: Context, senderId: String, receiverId: String, text: String) {
         val chatId = chatIdFor(senderId, receiverId)

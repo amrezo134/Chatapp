@@ -62,4 +62,10 @@ dependencies {
 
     // Coil لعرض الصور (avatar)
     implementation("io.coil-kt:coil-compose:2.6.0")
+    implementation("com.google.guava:guava:33.2.1-android")
+}
+configurations.all {
+    resolutionStrategy {
+        force("com.google.guava:guava:33.2.1-android")
+    }
 }

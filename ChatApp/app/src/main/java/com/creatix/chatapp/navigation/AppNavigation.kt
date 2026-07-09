@@ -19,6 +19,7 @@ private object Routes {
     const val REGISTER = "register"
     const val CHAT_LIST = "chat_list"
     const val CHAT = "chat"
+    const val GROUP_CHAT = "group_chat"  
 }
 
 @Composable
@@ -63,6 +64,7 @@ fun AppNavigation(authViewModel: AuthViewModel) {
                     selectedUser = user
                     navController.navigate(Routes.CHAT)
                 },
+                onOpenGroupChat = { navController.navigate(Routes.GROUP_CHAT) },
                 onLoggedOut = {
                     navController.navigate(Routes.LOGIN) {
                         popUpTo(Routes.CHAT_LIST) { inclusive = true }
@@ -80,6 +82,13 @@ fun AppNavigation(authViewModel: AuthViewModel) {
                     onBack = { navController.popBackStack() }
                 )
             }
+        }
+        composable(Routes.GROUP_CHAT) {
+            GroupChatScreen(
+                authViewModel = authViewModel,
+                chatViewModel = chatViewModel,
+                onBack = { navController.popBackStack() }
+            )
         }
     }
 }

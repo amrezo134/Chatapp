@@ -51,10 +51,14 @@ class ChatViewModel(
     }
 
     fun observeTyping(chatId: String, otherUid: String) {
-        viewModelScope.launch {
-            repository.observeTyping(chatId, otherUid).collect { _otherUserTyping.value = it }
+            viewModelScope.launch {
+                try {
+                    repository.observeTyping(chatId, otherUid).collect { _otherUserTyping.value = it }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
-    }
 
     fun setTyping(chatId: String, myUid: String, isTyping: Boolean) {
         repository.setTyping(chatId, myUid, isTyping)

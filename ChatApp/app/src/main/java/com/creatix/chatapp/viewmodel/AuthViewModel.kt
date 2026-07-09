@@ -23,6 +23,7 @@ class AuthViewModel(
 
     val isLoggedIn: Boolean get() = repository.isLoggedIn()
     val currentUid: String? get() = repository.currentUser?.uid
+    val currentDisplayName: String? get() = repository.currentUser?.displayName
 
     fun login(email: String, password: String) {
         if (email.isBlank() || password.isBlank()) {

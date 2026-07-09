@@ -2,6 +2,9 @@ package com.creatix.chatapp.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -22,7 +25,7 @@ private object Routes {
 fun AppNavigation(authViewModel: AuthViewModel) {
     val navController: NavHostController = rememberNavController()
     val chatViewModel = remember { ChatViewModel() }
-    var selectedUser: ChatUser? = null
+    var selectedUser by remember { mutableStateOf<ChatUser?>(null) }
 
     val startDestination = if (authViewModel.isLoggedIn) Routes.CHAT_LIST else Routes.LOGIN
 

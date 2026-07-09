@@ -160,4 +160,37 @@ class ChatRepository {
         }
         batch.commit().await()
     }
+    // ---------------------------------------------------------------
+    // الجروب العام: بيضم كل المستخدمين المسجلين في قاعدة البيانات
+    // ---------------------------------------------------------------
+
+    /** بث لحظي لرسائل الجروب العام */
+    fun observeGroupMessages(): Flow<List<GroupMessage>> = callbackFlow {
+        val listener = db.collection("groups").document(GLOBAL_GROUP_ID)
+            .collection("messages")
+            .orderBy("timestamp", Query.Direction.ASCENDING)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) { close(error); return@addSnapshotListener }
+                val messages = snapshot?.documents
+                    ?.mapNotNull { it.toObject(GroupMessage::class.java) }
+                    ?: emptyList()
+                trySend(messages)
+            }
+        awaitClose { listener.remove() }
+    }
+
+    /** إرسال رسالة في الجروب العام */
+    suspend fun sendGroupMessage(senderId: String, senderName: String, text: String) {
+        val groupRef = db.collection("groups").document(GLOBAL_GROUP_ID)
+        groupRef.set(mapOf("lastMessage" to text, "lastTimestamp" to System.currentTimeMillis()), SetOptions.merge()).await()
+
+        val docRef = groupRef.collection("messages").document()
+        val message = GroupMessage(
+            id = docRef.id,
+            senderId = senderId,
+            senderName = senderName,
+            text = text
+        )
+        docRef.set(message).await()
+    }
 }

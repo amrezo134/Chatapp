@@ -18,6 +18,15 @@ class ChatViewModel(
     private val _users = MutableStateFlow<List<ChatUser>>(emptyList())
     val users: StateFlow<List<ChatUser>> = _users
 
+    private val _myDisplayName = MutableStateFlow("أنا")
+    val myDisplayName: StateFlow<String> = _myDisplayName
+
+    fun loadMyDisplayName(uid: String) {
+        viewModelScope.launch {
+            _myDisplayName.value = repository.getCurrentUserName(uid)
+        }
+    }
+
     private val _messages = MutableStateFlow<List<Message>>(emptyList())
     val messages: StateFlow<List<Message>> = _messages
     

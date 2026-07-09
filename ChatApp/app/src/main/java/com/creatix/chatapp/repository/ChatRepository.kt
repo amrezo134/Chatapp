@@ -50,6 +50,16 @@ class ChatRepository {
             }
         awaitClose { listener.remove() }
     }
+
+    suspend fun getCurrentUserName(uid: String): String {
+        return try {
+            db.collection("users").document(uid).get().await()
+                .getString("displayName")?.ifBlank { null } ?: "أنا"
+        } catch (e: Exception) {
+            "أنا"
+            }
+        }
+        
     /** بيتأكد إن مستند الشات موجود (بالـ participants) قبل ما نـ observe أي حاجة جواه */
     suspend fun ensureChatDocument(myUid: String, otherUid: String) {
         val chatId = chatIdFor(myUid, otherUid)

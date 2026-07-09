@@ -5,6 +5,8 @@ import com.creatix.chatapp.R
 import com.creatix.chatapp.data.ChatUser
 import com.creatix.chatapp.data.Message
 import com.creatix.chatapp.data.chatIdFor
+import com.creatix.chatapp.data.GroupMessage
+import com.creatix.chatapp.data.GLOBAL_GROUP_ID
 import com.creatix.chatapp.services.FcmPushSender
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration

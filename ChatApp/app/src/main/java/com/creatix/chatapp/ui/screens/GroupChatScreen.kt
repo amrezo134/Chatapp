@@ -28,7 +28,8 @@ fun GroupChatScreen(
     onBack: () -> Unit
 ) {
     val myUid = authViewModel.currentUid ?: return
-    val myName = authViewModel.currentDisplayName ?: "أنا"
+    val myName by chatViewModel.myDisplayName.collectAsState()
+    LaunchedEffect(myUid) { chatViewModel.loadMyDisplayName(myUid) }
     val messages by chatViewModel.groupMessages.collectAsState()
     var text by remember { mutableStateOf("") }
     val listState = rememberLazyListState()

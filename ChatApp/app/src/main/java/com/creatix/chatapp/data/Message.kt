@@ -6,13 +6,12 @@ data class Message(
     val receiverId: String = "",
     val text: String = "",
     val timestamp: Long = System.currentTimeMillis(),
-    val seen: Boolean = false
+    val seen: Boolean = false,
+    val fileUrl: String = "",
+    val fileName: String = "",
+    val fileType: String = "" // "image" أو "file"
 )
 
-/**
- * كل محادثة بين شخصين ليها ID ثابت = دمج الـ uid بتوع الاتنين مرتبين أبجديًا
- * عشان تضمن إن نفس الشات id يترجع مهما مين بدأ المحادثة.
- */
 fun chatIdFor(uidA: String, uidB: String): String {
     return if (uidA < uidB) "${uidA}_${uidB}" else "${uidB}_${uidA}"
 }

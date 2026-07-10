@@ -5,7 +5,10 @@ data class GroupMessage(
     val senderId: String = "",
     val senderName: String = "",
     val text: String = "",
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val fileUrl: String = "",
+    val fileName: String = "",
+    val fileType: String = "" // "image" أو "file"
 )
 
 // كل الجروب العام بيستخدم مستند ثابت واحد بالـ id ده

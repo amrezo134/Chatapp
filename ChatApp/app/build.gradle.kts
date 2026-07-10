@@ -56,6 +56,7 @@ dependencies {
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.google.firebase:firebase-messaging-ktx") // للإشعارات (اختياري)
+    implementation("com.google.firebase:firebase-storage-ktx")
 
     // Coroutines
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

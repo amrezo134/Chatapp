@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.creatix.chatapp.data.GroupMessage
@@ -28,6 +29,7 @@ fun GroupChatScreen(
     onBack: () -> Unit
 ) {
     val myUid = authViewModel.currentUid ?: return
+    val context = LocalContext.current
     val myName by chatViewModel.myDisplayName.collectAsState()
     LaunchedEffect(myUid) { chatViewModel.loadMyDisplayName(myUid) }
     val messages by chatViewModel.groupMessages.collectAsState()
@@ -60,7 +62,7 @@ fun GroupChatScreen(
                 )
                 Spacer(Modifier.width(8.dp))
                 IconButton(onClick = {
-                    chatViewModel.sendGroupMessage(myUid, myName, text)
+                    chatViewModel.sendGroupMessage(context, myUid, myName, text)
                     text = ""
                 }) {
                     Icon(Icons.Default.Send, contentDescription = "إرسال")

@@ -86,10 +86,10 @@ class ChatViewModel(
         }
     }
 
-    fun sendGroupMessage(senderId: String, senderName: String, text: String) {
+    fun sendGroupMessage(context: Context, senderId: String, senderName: String, text: String) {
         if (text.isBlank()) return
         viewModelScope.launch {
-            repository.sendGroupMessage(senderId, senderName, text.trim())
+            repository.sendGroupMessage(context.applicationContext, senderId, senderName, text.trim())
         }
     }
 }

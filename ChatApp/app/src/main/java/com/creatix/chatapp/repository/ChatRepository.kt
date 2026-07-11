@@ -13,6 +13,9 @@ import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
@@ -205,7 +208,7 @@ class ChatRepository {
     }
 
     /** إرسال رسالة في الجروب العام */
-    suspend fun sendGroupMessage(senderId: String, senderName: String, text: String) {
+    suspend fun sendGroupMessage(context: Context, senderId: String, senderName: String, text: String) {
         val groupRef = db.collection("groups").document(GLOBAL_GROUP_ID)
         groupRef.set(mapOf("lastMessage" to text, "lastTimestamp" to System.currentTimeMillis()), SetOptions.merge()).await()
 
@@ -217,5 +220,48 @@ class ChatRepository {
             text = text
         )
         docRef.set(message).await()
+
+        // بعد ما الرسالة اتسجلت، ابعت إشعار push لكل أعضاء الجروب (كل المستخدمين ما عدا اللي بعت)
+        notifyGroupMembers(context, senderId, senderName, text)
+    }
+
+    /**
+     * بيجيب كل اليوزرز المسجلين (ما عدا المرسل)، وبيبعتلهم كلهم إشعار push بالتوازي.
+     * لو فشل الإرسال لواحد منهم (توكن قديم مثلاً)، الباقي بيكمل عادي.
+     */
+    private suspend fun notifyGroupMembers(context: Context, senderId: String, senderName: String, text: String) {
+        try {
+            val usersSnapshot = db.collection("users").get().await()
+            val projectId = context.getString(R.string.project_id)
+
+            coroutineScope {
+                usersSnapshot.documents
+                    .filter { it.id != senderId }
+                    .mapNotNull { doc ->
+                        val token = doc.getString("fcmToken")
+                        if (token.isNullOrBlank()) null else token
+                    }
+                    .map { token ->
+                        async {
+                            try {
+                                FcmPushSender.sendNotification(
+                                    context = context,
+                                    projectId = projectId,
+                                    targetToken = token,
+                                    title = "الجروب العام - $senderName",
+                                    body = text,
+                                    senderId = senderId
+                                )
+                            } catch (e: Exception) {
+                                logDebug("group_notify_error", e.message ?: e.toString())
+                            }
+                        }
+                    }
+                    .awaitAll()
+            }
+            logDebug("success", "group notification sent by $senderId")
+        } catch (e: Exception) {
+            logDebug("error", e.message ?: e.toString())
+        }
     }
 }

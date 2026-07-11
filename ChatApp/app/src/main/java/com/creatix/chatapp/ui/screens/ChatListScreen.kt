@@ -1,5 +1,8 @@
 package com.creatix.chatapp.ui.screens
 
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -21,14 +24,17 @@ import com.creatix.chatapp.viewmodel.AuthViewModel
 import com.creatix.chatapp.viewmodel.ChatViewModel
 import androidx.compose.material.icons.filled.Groups
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun ChatListScreen(
     authViewModel: AuthViewModel,
     chatViewModel: ChatViewModel,
     onOpenChat: (ChatUser) -> Unit,
     onOpenGroupChat: () -> Unit,
-    onLoggedOut: () -> Unit
+    onLoggedOut: () -> Unit,
+    onOpenProfilePhoto: (ChatUser) -> Unit,
+    sharedTransitionScope: SharedTransitionScope,
+    animatedVisibilityScope: AnimatedVisibilityScope
 ) {
     val users by chatViewModel.users.collectAsState()
 
@@ -69,22 +75,31 @@ fun ChatListScreen(
                 items(users) { user ->
                     ListItem(
                         leadingContent = {
-                            if (user.photoUrl.isNotBlank()) {
-                                AsyncImage(
-                                    model = user.photoUrl,
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.size(44.dp).clip(CircleShape)
-                                )
-                            } else {
-                                Box(
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.primaryContainer),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text((user.displayName.firstOrNull() ?: '?').toString())
+                            with(sharedTransitionScope) {
+                                if (user.photoUrl.isNotBlank()) {
+                                    AsyncImage(
+                                        model = user.photoUrl,
+                                        contentDescription = null,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .size(44.dp)
+                                            .clip(CircleShape)
+                                            .sharedElement(
+                                                state = rememberSharedContentState(key = "profile-${user.uid}"),
+                                                animatedVisibilityScope = animatedVisibilityScope
+                                            )
+                                            .clickable { onOpenProfilePhoto(user) }
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(44.dp)
+                                            .clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.primaryContainer),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text((user.displayName.firstOrNull() ?: '?').toString())
+                                    }
                                 }
                             }
                         },

@@ -36,6 +36,9 @@ class ChatViewModel(
     private val _otherUserTyping = MutableStateFlow(false)
     val otherUserTyping: StateFlow<Boolean> = _otherUserTyping
 
+    private val _groupTypingNames = MutableStateFlow<List<String>>(emptyList())
+    val groupTypingNames: StateFlow<List<String>> = _groupTypingNames
+
     fun loadUsers(currentUid: String) {
         viewModelScope.launch {
             repository.observeUsers(currentUid).collect { _users.value = it }
@@ -91,5 +94,19 @@ class ChatViewModel(
         viewModelScope.launch {
             repository.sendGroupMessage(context.applicationContext, senderId, senderName, text.trim())
         }
+    }
+
+    fun observeGroupTyping(myUid: String) {
+        viewModelScope.launch {
+            try {
+                repository.observeGroupTyping(myUid).collect { _groupTypingNames.value = it }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun setGroupTyping(myUid: String, myName: String, isTyping: Boolean) {
+        repository.setGroupTyping(myUid, myName, isTyping)
     }
 }

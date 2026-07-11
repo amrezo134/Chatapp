@@ -10,7 +10,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,7 +31,7 @@ fun ChatListScreen(
     chatViewModel: ChatViewModel,
     onOpenChat: (ChatUser) -> Unit,
     onOpenGroupChat: () -> Unit,
-    onLoggedOut: () -> Unit,
+    onOpenProfile: () -> Unit,
     onOpenProfilePhoto: (ChatUser) -> Unit,
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope
@@ -53,11 +53,8 @@ fun ChatListScreen(
             TopAppBar(
                 title = { Text("المحادثات") },
                 actions = {
-                    IconButton(onClick = {
-                        authViewModel.logout()
-                        onLoggedOut()
-                    }) {
-                        Icon(Icons.Default.ExitToApp, contentDescription = "تسجيل خروج")
+                    IconButton(onClick = onOpenProfile) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "المزيد")
                     }
                 }
             )

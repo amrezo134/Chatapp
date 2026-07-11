@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.sp
 import com.creatix.chatapp.data.GroupMessage
 import com.creatix.chatapp.viewmodel.AuthViewModel
 import com.creatix.chatapp.viewmodel.ChatViewModel
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,10 +34,24 @@ fun GroupChatScreen(
     val myName by chatViewModel.myDisplayName.collectAsState()
     LaunchedEffect(myUid) { chatViewModel.loadMyDisplayName(myUid) }
     val messages by chatViewModel.groupMessages.collectAsState()
+    val typingNames by chatViewModel.groupTypingNames.collectAsState()
     var text by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
     LaunchedEffect(Unit) { chatViewModel.loadGroupMessages() }
+    LaunchedEffect(myUid) { chatViewModel.observeGroupTyping(myUid) }
+
+    DisposableEffect(Unit) {
+        onDispose { chatViewModel.setGroupTyping(myUid, myName, false) }
+    }
+
+    LaunchedEffect(text, myName) {
+        if (text.isNotEmpty()) {
+            chatViewModel.setGroupTyping(myUid, myName, true)
+            delay(2000)
+            chatViewModel.setGroupTyping(myUid, myName, false)
+        }
+    }
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
@@ -64,19 +79,43 @@ fun GroupChatScreen(
                 IconButton(onClick = {
                     chatViewModel.sendGroupMessage(context, myUid, myName, text)
                     text = ""
+                    chatViewModel.setGroupTyping(myUid, myName, false)
                 }) {
                     Icon(Icons.Default.Send, contentDescription = "إرسال")
                 }
             }
         }
     ) { padding ->
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
         ) {
-            items(messages) { message ->
-                GroupMessageBubble(message = message, isMine = message.senderId == myUid)
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                items(messages) { message ->
+                    GroupMessageBubble(message = message, isMine = message.senderId == myUid)
+                }
+            }
+
+            val typingText = when (typingNames.size) {
+                0 -> null
+                1 -> "${typingNames[0]} بيكتب دلوقتي..."
+                else -> "${typingNames.joinToString("، ")} بيكتبوا دلوقتي..."
+            }
+            if (typingText != null) {
+                Text(
+                    text = typingText,
+                    fontSize = 11.sp,
+                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 8.dp, bottom = 4.dp)
+                )
             }
         }
     }

@@ -189,6 +189,38 @@ class ChatRepository {
         batch.commit().await()
     }
     // ---------------------------------------------------------------
+    // ميزة "بيكتب دلوقتي..." للجروب العام (ممكن أكتر من شخص يكتبوا مع بعض)
+    // ---------------------------------------------------------------
+
+    /** بيسجل/بيمسح اسم اليوزر من قائمة "بيكتبوا دلوقتي" بتاعة الجروب */
+    fun setGroupTyping(uid: String, displayName: String, isTyping: Boolean) {
+        val groupRef = db.collection("groups").document(GLOBAL_GROUP_ID)
+        if (isTyping) {
+            groupRef.set(mapOf("typing" to mapOf(uid to displayName)), SetOptions.merge())
+        } else {
+            groupRef.update("typing.$uid", com.google.firebase.firestore.FieldValue.delete())
+                .addOnFailureListener { /* هيفشل لو المستند أو الفيلد مش موجود أصلاً، تجاهل */ }
+        }
+    }
+
+    /** بيراقب أسماء كل اليوزرز (ما عدا أنا) اللي بيكتبوا دلوقتي في الجروب */
+    fun observeGroupTyping(myUid: String): Flow<List<String>> = callbackFlow {
+        val listener = db.collection("groups").document(GLOBAL_GROUP_ID)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) { close(error); return@addSnapshotListener }
+                @Suppress("UNCHECKED_CAST")
+                val typingMap = snapshot?.get("typing") as? Map<String, String>
+                val names = typingMap
+                    ?.filterKeys { it != myUid }
+                    ?.values
+                    ?.toList()
+                    ?: emptyList()
+                trySend(names)
+            }
+        awaitClose { listener.remove() }
+    }
+
+    // ---------------------------------------------------------------
     // الجروب العام: بيضم كل المستخدمين المسجلين في قاعدة البيانات
     // ---------------------------------------------------------------
 

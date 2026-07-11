@@ -22,6 +22,7 @@ private object Routes {
     const val CHAT_LIST = "chat_list"
     const val CHAT = "chat"
     const val GROUP_CHAT = "group_chat"
+    const val PROFILE = "profile"
     const val PROFILE_PHOTO = "profile_photo"
 }
 
@@ -71,13 +72,28 @@ fun AppNavigation(authViewModel: AuthViewModel) {
                         navController.navigate(Routes.CHAT)
                     },
                     onOpenGroupChat = { navController.navigate(Routes.GROUP_CHAT) },
+                    onOpenProfile = { navController.navigate(Routes.PROFILE) },
+                    onOpenProfilePhoto = { user ->
+                        profilePhotoUser = user
+                        navController.navigate(Routes.PROFILE_PHOTO)
+                    },
+                    sharedTransitionScope = this@SharedTransitionLayout,
+                    animatedVisibilityScope = this@composable
+                )
+            }
+
+            composable(Routes.PROFILE) {
+                ProfileScreen(
+                    authViewModel = authViewModel,
+                    chatViewModel = chatViewModel,
+                    onBack = { navController.popBackStack() },
                     onLoggedOut = {
                         navController.navigate(Routes.LOGIN) {
                             popUpTo(Routes.CHAT_LIST) { inclusive = true }
                         }
                     },
-                    onOpenProfilePhoto = { user ->
-                        profilePhotoUser = user
+                    onOpenMyPhoto = {
+                        profilePhotoUser = chatViewModel.myProfile.value
                         navController.navigate(Routes.PROFILE_PHOTO)
                     },
                     sharedTransitionScope = this@SharedTransitionLayout,

@@ -27,6 +27,15 @@ class ChatViewModel(
         }
     }
 
+    private val _myProfile = MutableStateFlow<ChatUser?>(null)
+    val myProfile: StateFlow<ChatUser?> = _myProfile
+
+    fun loadMyProfile(uid: String) {
+        viewModelScope.launch {
+            _myProfile.value = repository.getCurrentUser(uid)
+        }
+    }
+
     private val _messages = MutableStateFlow<List<Message>>(emptyList())
     val messages: StateFlow<List<Message>> = _messages
     

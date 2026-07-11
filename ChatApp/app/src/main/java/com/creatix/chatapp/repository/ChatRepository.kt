@@ -62,7 +62,18 @@ class ChatRepository {
             "أنا"
             }
         }
-        
+
+    /** بيجيب بيانات المستخدم الحالي كاملة (الاسم، الصورة، البايو..) لصفحة البروفايل */
+    suspend fun getCurrentUser(uid: String): ChatUser? {
+        return try {
+            db.collection("users").document(uid).get().await()
+                .toObject(ChatUser::class.java)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
     /** بيتأكد إن مستند الشات موجود (بالـ participants) قبل ما نـ observe أي حاجة جواه */
     suspend fun ensureChatDocument(myUid: String, otherUid: String) {
         val chatId = chatIdFor(myUid, otherUid)

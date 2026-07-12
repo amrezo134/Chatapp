@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Search
@@ -14,10 +15,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.creatix.chatapp.data.ChatUser
+import com.creatix.chatapp.ui.theme.ChatAppBrandGradient
 import com.creatix.chatapp.viewmodel.AuthViewModel
 import com.creatix.chatapp.viewmodel.ChatViewModel
 import com.creatix.chatapp.viewmodel.CreateGroupState
@@ -65,10 +69,17 @@ fun CreateGroupScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("جروب جديد") },
-                navigationIcon = { IconButton(onClick = onBack) { Text("‹") } }
-            )
+            Box(modifier = Modifier.fillMaxWidth().background(ChatAppBrandGradient)) {
+                TopAppBar(
+                    title = { Text("جروب جديد", color = Color.White, fontWeight = FontWeight.SemiBold) },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Text("‹", color = Color.White, style = MaterialTheme.typography.headlineSmall)
+                        }
+                    }
+                )
+            }
         },
         bottomBar = {
             Column(modifier = Modifier.padding(16.dp)) {
@@ -84,12 +95,24 @@ fun CreateGroupScreen(
                         chatViewModel.createCustomGroup(groupName, myUid, selectedMemberIds.toList())
                     },
                     enabled = createState != CreateGroupState.Loading,
-                    modifier = Modifier.fillMaxWidth()
+                    shape = RoundedCornerShape(16.dp),
+                    contentPadding = PaddingValues(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                    modifier = Modifier.fillMaxWidth().height(52.dp)
                 ) {
-                    if (createState == CreateGroupState.Loading) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                    } else {
-                        Text("إنشاء الجروب (${selectedMemberIds.size})")
+                    Box(
+                        modifier = Modifier.fillMaxSize().background(ChatAppBrandGradient, RoundedCornerShape(16.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (createState == CreateGroupState.Loading) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White)
+                        } else {
+                            Text(
+                                "إنشاء الجروب (${selectedMemberIds.size})",
+                                color = Color.White,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
                 }
             }
@@ -100,6 +123,8 @@ fun CreateGroupScreen(
                 value = groupName,
                 onValueChange = { groupName = it },
                 label = { Text("اسم الجروب") },
+                shape = RoundedCornerShape(16.dp),
+                singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(16.dp)
             )
 
@@ -109,6 +134,7 @@ fun CreateGroupScreen(
                 placeholder = { Text("دور على مستخدم بالاسم...") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 singleLine = true,
+                shape = RoundedCornerShape(16.dp),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
             )
 
@@ -116,29 +142,46 @@ fun CreateGroupScreen(
 
             if (filteredUsers.isEmpty()) {
                 Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                    Text("مفيش مستخدمين مطابقين")
+                    Text("مفيش مستخدمين مطابقين", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else {
                 LazyColumn(modifier = Modifier.weight(1f)) {
                     items(filteredUsers, key = { it.uid }) { user ->
                         val isSelected = selectedMemberIds.contains(user.uid)
-                        ListItem(
-                            leadingContent = { UserAvatar(user) },
-                            headlineContent = { Text(user.displayName.ifBlank { user.email }) },
-                            trailingContent = {
-                                if (isSelected) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    if (isSelected) selectedMemberIds.remove(user.uid) else selectedMemberIds.add(user.uid)
+                                }
+                                .background(if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else Color.Transparent)
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            UserAvatar(user)
+                            Spacer(Modifier.width(14.dp))
+                            Text(
+                                user.displayName.ifBlank { user.email },
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                            if (isSelected) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(26.dp)
+                                        .clip(CircleShape)
+                                        .background(ChatAppBrandGradient),
+                                    contentAlignment = Alignment.Center
+                                ) {
                                     Icon(
                                         Icons.Default.Check,
                                         contentDescription = "متختار",
-                                        tint = MaterialTheme.colorScheme.primary
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
                                     )
                                 }
-                            },
-                            modifier = Modifier.clickable {
-                                if (isSelected) selectedMemberIds.remove(user.uid) else selectedMemberIds.add(user.uid)
                             }
-                        )
-                        HorizontalDivider()
+                        }
                     }
                 }
             }
@@ -153,17 +196,21 @@ private fun UserAvatar(user: ChatUser) {
             model = user.photoUrl,
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.size(40.dp).clip(CircleShape)
+            modifier = Modifier.size(44.dp).clip(CircleShape)
         )
     } else {
         Box(
             modifier = Modifier
-                .size(40.dp)
+                .size(44.dp)
                 .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primaryContainer),
+                .background(ChatAppBrandGradient),
             contentAlignment = Alignment.Center
         ) {
-            Text((user.displayName.firstOrNull() ?: '?').toString())
+            Text(
+                (user.displayName.firstOrNull() ?: '?').toString(),
+                color = Color.White,
+                fontWeight = FontWeight.Bold
+            )
         }
     }
 }

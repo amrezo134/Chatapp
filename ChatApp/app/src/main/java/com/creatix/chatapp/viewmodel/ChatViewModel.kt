@@ -6,12 +6,14 @@ import androidx.lifecycle.viewModelScope
 import com.creatix.chatapp.data.ChatUser
 import com.creatix.chatapp.data.Message
 import com.creatix.chatapp.data.GroupMessage
+import com.creatix.chatapp.data.ChatGroup
 import com.creatix.chatapp.data.chatIdFor
 import com.creatix.chatapp.repository.ChatRepository
 import com.creatix.chatapp.repository.PresenceRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class ChatViewModel(
@@ -69,6 +71,30 @@ class ChatViewModel(
         viewModelScope.launch {
             repository.observeUsers(currentUid).collect { _users.value = it }
         }
+    }
+
+    // ---------------------------------------------------------------
+    // البحث عن مستخدم بالاسم
+    // ---------------------------------------------------------------
+
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery
+
+    /** قائمة اليوزرز بعد الفلترة بالاسم (لو الكلمة فاضية بترجع كل اليوزرز) */
+    val filteredUsers: StateFlow<List<ChatUser>> = combine(_users, _searchQuery) { users, query ->
+        if (query.isBlank()) {
+            users
+        } else {
+            val normalizedQuery = query.trim()
+            users.filter { user ->
+                user.displayName.contains(normalizedQuery, ignoreCase = true) ||
+                    user.email.contains(normalizedQuery, ignoreCase = true)
+            }
+        }
+    }.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun onSearchQueryChange(query: String) {
+        _searchQuery.value = query
     }
 
     // ---------------------------------------------------------------
@@ -212,4 +238,131 @@ class ChatViewModel(
             }
         }
     }
+
+    // ---------------------------------------------------------------
+    // الجروبات المخصصة (Custom Groups)
+    // ---------------------------------------------------------------
+
+    private val _myCustomGroups = MutableStateFlow<List<ChatGroup>>(emptyList())
+    val myCustomGroups: StateFlow<List<ChatGroup>> = _myCustomGroups
+
+    fun observeMyCustomGroups(myUid: String) {
+        viewModelScope.launch {
+            try {
+                repository.observeMyCustomGroups(myUid).collect { _myCustomGroups.value = it }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    private val _createGroupState = MutableStateFlow<CreateGroupState>(CreateGroupState.Idle)
+    val createGroupState: StateFlow<CreateGroupState> = _createGroupState
+
+    /** بتعمل جروب جديد؛ لو نجح بيتغير الـ state لـ Success ومعاه id الجروب عشان ننتقل لشاشته */
+    fun createCustomGroup(name: String, ownerId: String, memberIds: List<String>) {
+        if (name.isBlank()) {
+            _createGroupState.value = CreateGroupState.Error("اكتب اسم للجروب الأول")
+            return
+        }
+        if (memberIds.isEmpty()) {
+            _createGroupState.value = CreateGroupState.Error("اختار عضو واحد على الأقل")
+            return
+        }
+        _createGroupState.value = CreateGroupState.Loading
+        viewModelScope.launch {
+            try {
+                val groupId = repository.createCustomGroup(name.trim(), ownerId, memberIds)
+                _createGroupState.value = CreateGroupState.Success(groupId)
+            } catch (e: Exception) {
+                _createGroupState.value = CreateGroupState.Error(e.message ?: "حصل خطأ، حاول تاني")
+            }
+        }
+    }
+
+    fun resetCreateGroupState() {
+        _createGroupState.value = CreateGroupState.Idle
+    }
+
+    private val _customGroupMessages = MutableStateFlow<List<GroupMessage>>(emptyList())
+    val customGroupMessages: StateFlow<List<GroupMessage>> = _customGroupMessages
+
+    fun loadCustomGroupMessages(groupId: String) {
+        viewModelScope.launch {
+            try {
+                repository.observeCustomGroupMessages(groupId).collect { _customGroupMessages.value = it }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun sendCustomGroupMessage(context: Context, groupId: String, senderId: String, senderName: String, text: String) {
+        if (text.isBlank()) return
+        viewModelScope.launch {
+            repository.sendCustomGroupMessage(context.applicationContext, groupId, senderId, senderName, text.trim())
+        }
+    }
+
+    private val _customGroupTypingNames = MutableStateFlow<List<String>>(emptyList())
+    val customGroupTypingNames: StateFlow<List<String>> = _customGroupTypingNames
+
+    fun observeCustomGroupTyping(groupId: String, myUid: String) {
+        viewModelScope.launch {
+            try {
+                repository.observeCustomGroupTyping(groupId, myUid).collect { _customGroupTypingNames.value = it }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun setCustomGroupTyping(groupId: String, myUid: String, myName: String, isTyping: Boolean) {
+        repository.setCustomGroupTyping(groupId, myUid, myName, isTyping)
+    }
+
+    private val _customGroupUnreadCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
+    /** groupId -> عدد الرسائل الغير مقروءة في الجروبات المخصصة، بتستخدم في قائمة المحادثات */
+    val customGroupUnreadCounts: StateFlow<Map<String, Int>> = _customGroupUnreadCounts
+
+    private val observedCustomGroupExtras = mutableSetOf<String>()
+
+    /** بتتنادى كل ما قائمة جروباتي تتحدث؛ بتبدأ مراقبة عدد الرسائل الغير مقروءة لكل جروب جديد بس */
+    fun observeCustomGroupListExtras(myUid: String, groups: List<ChatGroup>) {
+        groups.forEach { group ->
+            if (!observedCustomGroupExtras.add(group.id)) return@forEach
+            viewModelScope.launch {
+                try {
+                    combine(
+                        repository.observeCustomGroupMessages(group.id),
+                        repository.observeCustomGroupLastRead(group.id, myUid)
+                    ) { messages, lastRead ->
+                        messages.count { it.senderId != myUid && it.timestamp > lastRead }
+                    }.collect { count ->
+                        _customGroupUnreadCounts.value = _customGroupUnreadCounts.value + (group.id to count)
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+    }
+
+    fun markCustomGroupAsRead(groupId: String, myUid: String) {
+        viewModelScope.launch {
+            try {
+                repository.markCustomGroupAsRead(groupId, myUid)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+}
+
+/** حالة عملية إنشاء جروب مخصص جديد */
+sealed class CreateGroupState {
+    data object Idle : CreateGroupState()
+    data object Loading : CreateGroupState()
+    data class Success(val groupId: String) : CreateGroupState()
+    data class Error(val message: String) : CreateGroupState()
 }

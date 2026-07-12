@@ -249,6 +249,29 @@ class ChatRepository {
     }
 
     // ---------------------------------------------------------------
+    // ميزة "عدد رسائل الجروب الغير مقروءة"
+    // ---------------------------------------------------------------
+
+    /** بيراقب آخر وقت فتحت فيه الجروب (بيتسجل في groups/global_group/reads/{uid}) */
+    fun observeGroupLastRead(myUid: String): Flow<Long> = callbackFlow {
+        val ref = db.collection("groups").document(GLOBAL_GROUP_ID)
+            .collection("reads").document(myUid)
+        val listener = ref.addSnapshotListener { snapshot, error ->
+            if (error != null) { close(error); return@addSnapshotListener }
+            trySend(snapshot?.getLong("lastReadTimestamp") ?: 0L)
+        }
+        awaitClose { listener.remove() }
+    }
+
+    /** بتتنادى وقت ما اليوزر يفتح شاشة الجروب، بتسجل إنه شاف كل الرسائل لحد دلوقتي */
+    suspend fun markGroupAsRead(myUid: String) {
+        db.collection("groups").document(GLOBAL_GROUP_ID)
+            .collection("reads").document(myUid)
+            .set(mapOf("lastReadTimestamp" to System.currentTimeMillis()), SetOptions.merge())
+            .await()
+    }
+
+    // ---------------------------------------------------------------
     // الجروب العام: بيضم كل المستخدمين المسجلين في قاعدة البيانات
     // ---------------------------------------------------------------
 

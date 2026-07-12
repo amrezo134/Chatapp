@@ -7,6 +7,7 @@ import com.creatix.chatapp.data.Message
 import com.creatix.chatapp.data.chatIdFor
 import com.creatix.chatapp.data.GroupMessage
 import com.creatix.chatapp.data.GLOBAL_GROUP_ID
+import com.creatix.chatapp.data.ChatGroup
 import com.creatix.chatapp.services.FcmPushSender
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
@@ -346,5 +347,172 @@ class ChatRepository {
         } catch (e: Exception) {
             logDebug("error", e.message ?: e.toString())
         }
+    }
+
+    // ---------------------------------------------------------------
+    // الجروبات المخصصة (Custom Groups) — أي مستخدم يقدر يعمل جروب ويختار أعضاءه
+    // ---------------------------------------------------------------
+
+    /** بيراقب كل الجروبات المخصصة اللي أنا عضو فيها */
+    fun observeMyCustomGroups(myUid: String): Flow<List<ChatGroup>> = callbackFlow {
+        val listener = db.collection("custom_groups")
+            .whereArrayContains("memberIds", myUid)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) { close(error); return@addSnapshotListener }
+                val groups = snapshot?.documents
+                    ?.mapNotNull { it.toObject(ChatGroup::class.java) }
+                    ?.sortedByDescending { it.lastTimestamp }
+                    ?: emptyList()
+                trySend(groups)
+            }
+        awaitClose { listener.remove() }
+    }
+
+    /** بيعمل جروب جديد، وبيحط صاحب الجروب نفسه ضمن الأعضاء تلقائيًا */
+    suspend fun createCustomGroup(name: String, ownerId: String, memberIds: List<String>): String {
+        val docRef = db.collection("custom_groups").document()
+        val allMembers = (memberIds + ownerId).distinct()
+        val group = ChatGroup(
+            id = docRef.id,
+            name = name,
+            ownerId = ownerId,
+            memberIds = allMembers,
+            lastMessage = "",
+            lastTimestamp = System.currentTimeMillis()
+        )
+        docRef.set(group).await()
+        return docRef.id
+    }
+
+    /** بث لحظي لرسائل جروب مخصص معين */
+    fun observeCustomGroupMessages(groupId: String): Flow<List<GroupMessage>> = callbackFlow {
+        val listener = db.collection("custom_groups").document(groupId)
+            .collection("messages")
+            .orderBy("timestamp", Query.Direction.ASCENDING)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) { close(error); return@addSnapshotListener }
+                val messages = snapshot?.documents
+                    ?.mapNotNull { it.toObject(GroupMessage::class.java) }
+                    ?: emptyList()
+                trySend(messages)
+            }
+        awaitClose { listener.remove() }
+    }
+
+    /** إرسال رسالة في جروب مخصص */
+    suspend fun sendCustomGroupMessage(
+        context: Context,
+        groupId: String,
+        senderId: String,
+        senderName: String,
+        text: String
+    ) {
+        val groupRef = db.collection("custom_groups").document(groupId)
+        groupRef.set(
+            mapOf("lastMessage" to text, "lastTimestamp" to System.currentTimeMillis()),
+            SetOptions.merge()
+        ).await()
+
+        val docRef = groupRef.collection("messages").document()
+        val message = GroupMessage(
+            id = docRef.id,
+            senderId = senderId,
+            senderName = senderName,
+            text = text
+        )
+        docRef.set(message).await()
+
+        notifyCustomGroupMembers(context, groupId, senderId, senderName, text)
+    }
+
+    /** بيبعت إشعار push لكل أعضاء الجروب المخصص ما عدا اللي بعت الرسالة */
+    private suspend fun notifyCustomGroupMembers(
+        context: Context,
+        groupId: String,
+        senderId: String,
+        senderName: String,
+        text: String
+    ) {
+        try {
+            val groupDoc = db.collection("custom_groups").document(groupId).get().await()
+            val group = groupDoc.toObject(ChatGroup::class.java) ?: return
+            val projectId = context.getString(R.string.project_id)
+
+            coroutineScope {
+                group.memberIds
+                    .filter { it != senderId }
+                    .map { uid ->
+                        async {
+                            try {
+                                val userDoc = db.collection("users").document(uid).get().await()
+                                val token = userDoc.getString("fcmToken")
+                                if (!token.isNullOrBlank()) {
+                                    FcmPushSender.sendNotification(
+                                        context = context,
+                                        projectId = projectId,
+                                        targetToken = token,
+                                        title = "${group.name} - $senderName",
+                                        body = text,
+                                        senderId = senderId
+                                    )
+                                }
+                            } catch (e: Exception) {
+                                logDebug("custom_group_notify_error", e.message ?: e.toString())
+                            }
+                        }
+                    }
+                    .awaitAll()
+            }
+            logDebug("success", "custom group notification sent by $senderId")
+        } catch (e: Exception) {
+            logDebug("error", e.message ?: e.toString())
+        }
+    }
+
+    /** بيسجل/بيمسح اسم اليوزر من قائمة "بيكتبوا دلوقتي" بتاعة جروب مخصص */
+    fun setCustomGroupTyping(groupId: String, uid: String, displayName: String, isTyping: Boolean) {
+        val groupRef = db.collection("custom_groups").document(groupId)
+        if (isTyping) {
+            groupRef.set(mapOf("typing" to mapOf(uid to displayName)), SetOptions.merge())
+        } else {
+            groupRef.update("typing.$uid", com.google.firebase.firestore.FieldValue.delete())
+                .addOnFailureListener { /* تجاهل لو مش موجودة أصلاً */ }
+        }
+    }
+
+    /** بيراقب أسماء كل اليوزرز (ما عدا أنا) اللي بيكتبوا دلوقتي في جروب مخصص */
+    fun observeCustomGroupTyping(groupId: String, myUid: String): Flow<List<String>> = callbackFlow {
+        val listener = db.collection("custom_groups").document(groupId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) { close(error); return@addSnapshotListener }
+                @Suppress("UNCHECKED_CAST")
+                val typingMap = snapshot?.get("typing") as? Map<String, String>
+                val names = typingMap
+                    ?.filterKeys { it != myUid }
+                    ?.values
+                    ?.toList()
+                    ?: emptyList()
+                trySend(names)
+            }
+        awaitClose { listener.remove() }
+    }
+
+    /** بيراقب آخر وقت فتحت فيه الجروب المخصص ده (بيتسجل في custom_groups/{id}/reads/{uid}) */
+    fun observeCustomGroupLastRead(groupId: String, myUid: String): Flow<Long> = callbackFlow {
+        val ref = db.collection("custom_groups").document(groupId)
+            .collection("reads").document(myUid)
+        val listener = ref.addSnapshotListener { snapshot, error ->
+            if (error != null) { close(error); return@addSnapshotListener }
+            trySend(snapshot?.getLong("lastReadTimestamp") ?: 0L)
+        }
+        awaitClose { listener.remove() }
+    }
+
+    /** بتتنادى وقت ما اليوزر يفتح شاشة الجروب المخصص، بتسجل إنه شاف كل الرسائل لحد دلوقتي */
+    suspend fun markCustomGroupAsRead(groupId: String, myUid: String) {
+        db.collection("custom_groups").document(groupId)
+            .collection("reads").document(myUid)
+            .set(mapOf("lastReadTimestamp" to System.currentTimeMillis()), SetOptions.merge())
+            .await()
     }
 }

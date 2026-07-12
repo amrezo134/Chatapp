@@ -5,6 +5,10 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -29,11 +33,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -42,6 +49,8 @@ import coil.compose.AsyncImage
 import com.creatix.chatapp.data.ChatUser
 import com.creatix.chatapp.data.Message
 import com.creatix.chatapp.data.chatIdFor
+import com.creatix.chatapp.ui.theme.ChatAppBrandGradient
+import com.creatix.chatapp.ui.theme.ChatAppSentBubbleGradient
 import com.creatix.chatapp.viewmodel.AuthViewModel
 import com.creatix.chatapp.viewmodel.ChatViewModel
 import kotlinx.coroutines.delay
@@ -101,61 +110,79 @@ fun ChatScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        with(sharedTransitionScope) {
-                            if (otherUser.photoUrl.isNotBlank()) {
-                                AsyncImage(
-                                    model = otherUser.photoUrl,
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .sharedElement(
-                                            state = rememberSharedContentState(key = "profile-${otherUser.uid}"),
-                                            animatedVisibilityScope = animatedVisibilityScope
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(ChatAppBrandGradient)
+            ) {
+                TopAppBar(
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            with(sharedTransitionScope) {
+                                if (otherUser.photoUrl.isNotBlank()) {
+                                    AsyncImage(
+                                        model = otherUser.photoUrl,
+                                        contentDescription = null,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .size(38.dp)
+                                            .clip(CircleShape)
+                                            .sharedElement(
+                                                state = rememberSharedContentState(key = "profile-${otherUser.uid}"),
+                                                animatedVisibilityScope = animatedVisibilityScope
+                                            )
+                                            .clickable { onOpenProfilePhoto() }
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(38.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.White.copy(alpha = 0.2f))
+                                            .clickable { onOpenProfilePhoto() },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            (otherUser.displayName.firstOrNull() ?: '?').toString(),
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold
                                         )
-                                        .clickable { onOpenProfilePhoto() }
+                                    }
+                                }
+                            }
+                            Spacer(Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    otherUser.displayName.ifBlank { otherUser.email },
+                                    color = Color.White,
+                                    fontWeight = FontWeight.SemiBold,
+                                    style = MaterialTheme.typography.titleMedium
                                 )
-                            } else {
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.primaryContainer)
-                                        .clickable { onOpenProfilePhoto() },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text((otherUser.displayName.firstOrNull() ?: '?').toString())
+                                if (otherUserTyping) {
+                                    Text(
+                                        "بيكتب دلوقتي...",
+                                        fontSize = 12.sp,
+                                        fontStyle = FontStyle.Italic,
+                                        color = Color.White.copy(alpha = 0.9f)
+                                    )
+                                } else if (otherUser.bio.isNotBlank()) {
+                                    Text(
+                                        otherUser.bio,
+                                        fontSize = 12.sp,
+                                        color = Color.White.copy(alpha = 0.75f)
+                                    )
                                 }
                             }
                         }
-                        Spacer(Modifier.width(8.dp))
-                        Column {
-                            Text(otherUser.displayName.ifBlank { otherUser.email })
-                            if (otherUserTyping) {
-                                Text(
-                                    "بيكتب دلوقتي...",
-                                    fontSize = 12.sp,
-                                    fontStyle = FontStyle.Italic,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            } else if (otherUser.bio.isNotBlank()) {
-                                Text(
-                                    otherUser.bio,
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Text("‹", color = Color.White, style = MaterialTheme.typography.headlineSmall)
                         }
                     }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Text("‹") }
-                }
-            )
+                )
+            }
         },
         bottomBar = {
             Column(modifier = Modifier.fillMaxWidth()) {
@@ -237,39 +264,65 @@ fun ChatScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(8.dp),
+                        .background(MaterialTheme.colorScheme.surface)
+                        .padding(horizontal = 10.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     OutlinedTextField(
                         value = text,
                         onValueChange = { text = it },
                         modifier = Modifier.weight(1f),
-                        placeholder = { Text("اكتب رسالة...") }
+                        placeholder = { Text("اكتب رسالة...") },
+                        shape = RoundedCornerShape(24.dp),
+                        maxLines = 4,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            unfocusedBorderColor = Color.Transparent,
+                            focusedBorderColor = Color.Transparent
+                        )
                     )
                     Spacer(Modifier.width(8.dp))
-                    IconButton(onClick = {
-                        val currentlyEditing = editingMessage
-                        if (currentlyEditing != null) {
-                            chatViewModel.editMessage(chatId, currentlyEditing.id, text)
-                            editingMessage = null
-                            text = ""
-                        } else {
-                            chatViewModel.sendMessage(
-                                context = context,
-                                senderId = myUid,
-                                receiverId = otherUser.uid,
-                                text = text,
-                                replyTo = replyingTo,
-                                replyToSenderName = replyingTo?.let {
-                                    if (it.senderId == myUid) "أنا" else otherUser.displayName.ifBlank { otherUser.email }
-                                } ?: ""
-                            )
-                            text = ""
-                            replyingTo = null
-                        }
-                        chatViewModel.setTyping(chatId, myUid, false)
-                    }) {
-                        Icon(Icons.Default.Send, contentDescription = "إرسال")
+                    val canSend = text.isNotBlank()
+                    IconButton(
+                        onClick = {
+                            val currentlyEditing = editingMessage
+                            if (currentlyEditing != null) {
+                                chatViewModel.editMessage(chatId, currentlyEditing.id, text)
+                                editingMessage = null
+                                text = ""
+                            } else {
+                                chatViewModel.sendMessage(
+                                    context = context,
+                                    senderId = myUid,
+                                    receiverId = otherUser.uid,
+                                    text = text,
+                                    replyTo = replyingTo,
+                                    replyToSenderName = replyingTo?.let {
+                                        if (it.senderId == myUid) "أنا" else otherUser.displayName.ifBlank { otherUser.email }
+                                    } ?: ""
+                                )
+                                text = ""
+                                replyingTo = null
+                            }
+                            chatViewModel.setTyping(chatId, myUid, false)
+                        },
+                        enabled = canSend,
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(if (canSend) ChatAppSentBubbleGradient else Brush.linearGradient(
+                                listOf(
+                                    MaterialTheme.colorScheme.surfaceVariant,
+                                    MaterialTheme.colorScheme.surfaceVariant
+                                )
+                            ))
+                    ) {
+                        Icon(
+                            Icons.Default.Send,
+                            contentDescription = "إرسال",
+                            tint = if (canSend) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
@@ -279,30 +332,39 @@ fun ChatScreen(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
                 .padding(padding)
-                .padding(horizontal = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+                .padding(horizontal = 10.dp),
+            contentPadding = PaddingValues(vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             itemsIndexed(messages, key = { _, message -> message.id.ifBlank { message.timestamp.toString() } }) { _, message ->
-                SwipeToReplyBubble(
-                    message = message,
-                    isMine = message.senderId == myUid,
-                    onReply = { replyingTo = it; editingMessage = null },
-                    onReplyPreviewClick = { replyToId ->
-                        val index = messages.indexOfFirst { it.id == replyToId }
-                        if (index >= 0) {
-                            coroutineScope.launch { listState.animateScrollToItem(index) }
-                        }
-                    },
-                    onCopy = { clipboardManager.setText(AnnotatedString(message.text)) },
-                    onForward = { forwardTarget = message },
-                    onEdit = {
-                        editingMessage = message
-                        replyingTo = null
-                        text = message.text
-                    },
-                    onDelete = { deleteTarget = message }
-                )
+                var shown by remember(message.id) { mutableStateOf(false) }
+                LaunchedEffect(message.id) { shown = true }
+                AnimatedVisibility(
+                    visible = shown,
+                    enter = fadeIn(tween(220)) + slideInVertically(tween(220)) { it / 5 }
+                ) {
+                    SwipeToReplyBubble(
+                        message = message,
+                        isMine = message.senderId == myUid,
+                        onReply = { replyingTo = it; editingMessage = null },
+                        onReplyPreviewClick = { replyToId ->
+                            val replyIndex = messages.indexOfFirst { it.id == replyToId }
+                            if (replyIndex >= 0) {
+                                coroutineScope.launch { listState.animateScrollToItem(replyIndex) }
+                            }
+                        },
+                        onCopy = { clipboardManager.setText(AnnotatedString(message.text)) },
+                        onForward = { forwardTarget = message },
+                        onEdit = {
+                            editingMessage = message
+                            replyingTo = null
+                            text = message.text
+                        },
+                        onDelete = { deleteTarget = message }
+                    )
+                }
             }
         }
     }
@@ -427,20 +489,32 @@ private fun MessageBubble(
 ) {
     var menuExpanded by remember(message.id) { mutableStateOf(false) }
 
+    val bubbleShape = if (isMine) {
+        RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 18.dp, bottomEnd = 4.dp)
+    } else {
+        RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 4.dp, bottomEnd = 18.dp)
+    }
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
     ) {
         Box(
             modifier = Modifier
-                .clip(RoundedCornerShape(12.dp))
-                .background(if (isMine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
+                .shadow(if (isMine) 3.dp else 1.dp, bubbleShape, clip = false)
+                .clip(bubbleShape)
+                .background(
+                    if (isMine) ChatAppSentBubbleGradient
+                    else Brush.linearGradient(
+                        listOf(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.surfaceVariant)
+                    )
+                )
                 .combinedClickable(
                     enabled = !message.deleted,
                     onClick = {},
                     onLongClick = { menuExpanded = true }
                 )
-                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .padding(horizontal = 14.dp, vertical = 9.dp)
                 .widthIn(max = 260.dp)
         ) {
             MessageActionsMenu(
@@ -458,7 +532,7 @@ private fun MessageBubble(
                     text = "🚫 تم حذف هذه الرسالة",
                     fontStyle = FontStyle.Italic,
                     fontSize = 13.sp,
-                    color = if (isMine) Color.White.copy(alpha = 0.8f) else Color.Gray
+                    color = if (isMine) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 return@Box
             }
@@ -495,28 +569,29 @@ private fun MessageBubble(
                             fontSize = 11.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            color = if (isMine) Color.White.copy(alpha = 0.8f) else Color.Black.copy(alpha = 0.7f)
+                            color = if (isMine) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     Spacer(Modifier.height(4.dp))
                 }
                 Text(
                     text = message.text,
-                    color = if (isMine) Color.White else Color.Black
+                    color = if (isMine) Color.White else MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.bodyMedium
                 )
                 if (message.edited) {
                     Text(
                         text = "(معدلة)",
                         fontSize = 10.sp,
                         fontStyle = FontStyle.Italic,
-                        color = if (isMine) Color.White.copy(alpha = 0.7f) else Color.Gray
+                        color = if (isMine) Color.White.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 if (isMine) {
                     Text(
                         text = if (message.seen) "✓✓ تمت القراءة" else "✓ اتبعتت",
                         fontSize = 10.sp,
-                        color = if (message.seen) Color(0xFFB3E5FC) else Color(0xFFCFD8DC),
+                        color = if (message.seen) com.creatix.chatapp.ui.theme.SeenBlue else Color.White.copy(alpha = 0.75f),
                         modifier = Modifier.align(Alignment.End)
                     )
                 }
@@ -524,3 +599,4 @@ private fun MessageBubble(
         }
     }
 }
+

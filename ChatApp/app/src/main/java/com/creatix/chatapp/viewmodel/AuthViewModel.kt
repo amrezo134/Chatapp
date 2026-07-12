@@ -3,6 +3,7 @@ package com.creatix.chatapp.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.creatix.chatapp.repository.AuthRepository
+import com.creatix.chatapp.repository.PresenceRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -15,7 +16,8 @@ sealed class AuthState {
 }
 
 class AuthViewModel(
-    private val repository: AuthRepository = AuthRepository()
+    private val repository: AuthRepository = AuthRepository(),
+    private val presenceRepository: PresenceRepository = PresenceRepository()
 ) : ViewModel() {
 
     private val _authState = MutableStateFlow<AuthState>(AuthState.Idle)
@@ -56,7 +58,13 @@ class AuthViewModel(
     }
 
     fun logout() {
+        presenceRepository.goOffline()
         repository.logout()
         _authState.value = AuthState.Idle
+    }
+
+    /** بتتنادى من MainActivity وقت ما التطبيق يفتح في المقدمة (true) أو يروح للخلفية (false) */
+    fun setOnlinePresence(online: Boolean) {
+        if (online) presenceRepository.goOnline() else presenceRepository.goOffline()
     }
 }

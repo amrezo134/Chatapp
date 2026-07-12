@@ -5,8 +5,10 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -22,6 +24,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.draw.alpha
@@ -29,6 +32,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -60,15 +64,24 @@ fun ChatScreen(
     val chatId = remember { chatIdFor(myUid, otherUser.uid) }
     val messages by chatViewModel.messages.collectAsState()
     val otherUserTyping by chatViewModel.otherUserTyping.collectAsState()
+    val allUsers by chatViewModel.users.collectAsState()
+    val myCustomGroups by chatViewModel.myCustomGroups.collectAsState()
+    val myDisplayName by chatViewModel.myDisplayName.collectAsState()
     var text by remember { mutableStateOf("") }
     var replyingTo by remember { mutableStateOf<Message?>(null) }
+    var editingMessage by remember { mutableStateOf<Message?>(null) }
+    var forwardTarget by remember { mutableStateOf<Message?>(null) }
+    var deleteTarget by remember { mutableStateOf<Message?>(null) }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
+    val clipboardManager = LocalClipboardManager.current
 
     LaunchedEffect(chatId) {
         chatViewModel.loadMessages(chatId, myUid, otherUser.uid)
         chatViewModel.observeTyping(chatId, otherUser.uid)
     }
+
+    LaunchedEffect(myUid) { chatViewModel.loadMyDisplayName(myUid) }
 
     DisposableEffect(chatId) {
         onDispose { chatViewModel.setTyping(chatId, myUid, false) }
@@ -146,8 +159,46 @@ fun ChatScreen(
         },
         bottomBar = {
             Column(modifier = Modifier.fillMaxWidth()) {
+                val currentEdit = editingMessage
+                if (currentEdit != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(3.dp)
+                                .height(32.dp)
+                                .background(MaterialTheme.colorScheme.primary)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "تعديل الرسالة",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = currentEdit.text,
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        IconButton(onClick = {
+                            editingMessage = null
+                            text = ""
+                        }) {
+                            Icon(Icons.Default.Close, contentDescription = "إلغاء التعديل")
+                        }
+                    }
+                }
                 val currentReply = replyingTo
-                if (currentReply != null) {
+                if (currentReply != null && currentEdit == null) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -197,18 +248,25 @@ fun ChatScreen(
                     )
                     Spacer(Modifier.width(8.dp))
                     IconButton(onClick = {
-                        chatViewModel.sendMessage(
-                            context = context,
-                            senderId = myUid,
-                            receiverId = otherUser.uid,
-                            text = text,
-                            replyTo = replyingTo,
-                            replyToSenderName = replyingTo?.let {
-                                if (it.senderId == myUid) "أنا" else otherUser.displayName.ifBlank { otherUser.email }
-                            } ?: ""
-                        )
-                        text = ""
-                        replyingTo = null
+                        val currentlyEditing = editingMessage
+                        if (currentlyEditing != null) {
+                            chatViewModel.editMessage(chatId, currentlyEditing.id, text)
+                            editingMessage = null
+                            text = ""
+                        } else {
+                            chatViewModel.sendMessage(
+                                context = context,
+                                senderId = myUid,
+                                receiverId = otherUser.uid,
+                                text = text,
+                                replyTo = replyingTo,
+                                replyToSenderName = replyingTo?.let {
+                                    if (it.senderId == myUid) "أنا" else otherUser.displayName.ifBlank { otherUser.email }
+                                } ?: ""
+                            )
+                            text = ""
+                            replyingTo = null
+                        }
                         chatViewModel.setTyping(chatId, myUid, false)
                     }) {
                         Icon(Icons.Default.Send, contentDescription = "إرسال")
@@ -229,16 +287,59 @@ fun ChatScreen(
                 SwipeToReplyBubble(
                     message = message,
                     isMine = message.senderId == myUid,
-                    onReply = { replyingTo = it },
+                    onReply = { replyingTo = it; editingMessage = null },
                     onReplyPreviewClick = { replyToId ->
                         val index = messages.indexOfFirst { it.id == replyToId }
                         if (index >= 0) {
                             coroutineScope.launch { listState.animateScrollToItem(index) }
                         }
-                    }
+                    },
+                    onCopy = { clipboardManager.setText(AnnotatedString(message.text)) },
+                    onForward = { forwardTarget = message },
+                    onEdit = {
+                        editingMessage = message
+                        replyingTo = null
+                        text = message.text
+                    },
+                    onDelete = { deleteTarget = message }
                 )
             }
         }
+    }
+
+    val currentForward = forwardTarget
+    if (currentForward != null) {
+        ForwardDialog(
+            users = allUsers,
+            groups = myCustomGroups,
+            onDismiss = { forwardTarget = null },
+            onForwardToGlobalGroup = {
+                chatViewModel.sendGroupMessage(context, myUid, myDisplayName, currentForward.text, forwarded = true)
+                forwardTarget = null
+            },
+            onForwardToGroup = { group ->
+                chatViewModel.sendCustomGroupMessage(context, group.id, myUid, myDisplayName, currentForward.text, forwarded = true)
+                forwardTarget = null
+            },
+            onForwardToUser = { user ->
+                chatViewModel.sendMessage(
+                    context = context,
+                    senderId = myUid,
+                    receiverId = user.uid,
+                    text = currentForward.text,
+                    forwarded = true
+                )
+                forwardTarget = null
+            }
+        )
+    }
+
+    val currentDelete = deleteTarget
+    if (currentDelete != null) {
+        DeleteMessageConfirmDialog(
+            onDismiss = { deleteTarget = null },
+            onConfirm = { chatViewModel.deleteMessage(chatId, currentDelete.id) }
+        )
     }
 }
 
@@ -248,7 +349,11 @@ private fun SwipeToReplyBubble(
     message: Message,
     isMine: Boolean,
     onReply: (Message) -> Unit,
-    onReplyPreviewClick: (String) -> Unit
+    onReplyPreviewClick: (String) -> Unit,
+    onCopy: () -> Unit,
+    onForward: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
 ) {
     val density = LocalDensity.current
     val triggerPx = with(density) { 64.dp.toPx() }
@@ -299,18 +404,29 @@ private fun SwipeToReplyBubble(
             MessageBubble(
                 message = message,
                 isMine = isMine,
-                onReplyPreviewClick = onReplyPreviewClick
+                onReplyPreviewClick = onReplyPreviewClick,
+                onCopy = onCopy,
+                onForward = onForward,
+                onEdit = onEdit,
+                onDelete = onDelete
             )
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageBubble(
     message: Message,
     isMine: Boolean,
-    onReplyPreviewClick: (String) -> Unit = {}
+    onReplyPreviewClick: (String) -> Unit = {},
+    onCopy: () -> Unit = {},
+    onForward: () -> Unit = {},
+    onEdit: () -> Unit = {},
+    onDelete: () -> Unit = {}
 ) {
+    var menuExpanded by remember(message.id) { mutableStateOf(false) }
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
@@ -319,10 +435,42 @@ private fun MessageBubble(
             modifier = Modifier
                 .clip(RoundedCornerShape(12.dp))
                 .background(if (isMine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
+                .combinedClickable(
+                    enabled = !message.deleted,
+                    onClick = {},
+                    onLongClick = { menuExpanded = true }
+                )
                 .padding(horizontal = 12.dp, vertical = 8.dp)
                 .widthIn(max = 260.dp)
         ) {
+            MessageActionsMenu(
+                expanded = menuExpanded,
+                onDismiss = { menuExpanded = false },
+                canEdit = isMine && message.text.isNotBlank(),
+                canDelete = isMine,
+                onCopy = onCopy,
+                onForward = onForward,
+                onEdit = onEdit,
+                onDelete = onDelete
+            )
+            if (message.deleted) {
+                Text(
+                    text = "🚫 تم حذف هذه الرسالة",
+                    fontStyle = FontStyle.Italic,
+                    fontSize = 13.sp,
+                    color = if (isMine) Color.White.copy(alpha = 0.8f) else Color.Gray
+                )
+                return@Box
+            }
             Column {
+                if (message.forwarded) {
+                    Text(
+                        text = "↪ تم التوجيه",
+                        fontSize = 11.sp,
+                        fontStyle = FontStyle.Italic,
+                        color = if (isMine) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 if (message.replyToText.isNotBlank() || message.replyToId.isNotBlank()) {
                     Column(
                         modifier = Modifier
@@ -356,6 +504,14 @@ private fun MessageBubble(
                     text = message.text,
                     color = if (isMine) Color.White else Color.Black
                 )
+                if (message.edited) {
+                    Text(
+                        text = "(معدلة)",
+                        fontSize = 10.sp,
+                        fontStyle = FontStyle.Italic,
+                        color = if (isMine) Color.White.copy(alpha = 0.7f) else Color.Gray
+                    )
+                }
                 if (isMine) {
                     Text(
                         text = if (message.seen) "✓✓ تمت القراءة" else "✓ اتبعتت",

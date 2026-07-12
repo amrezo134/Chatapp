@@ -8,7 +8,10 @@ data class GroupMessage(
     val timestamp: Long = System.currentTimeMillis(),
     val fileUrl: String = "",
     val fileName: String = "",
-    val fileType: String = "" // "image" أو "file"
+    val fileType: String = "", // "image" أو "file"
+    val edited: Boolean = false,
+    val deleted: Boolean = false,
+    val forwarded: Boolean = false
 )
 
 // كل الجروب العام بيستخدم مستند ثابت واحد بالـ id ده

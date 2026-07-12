@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -16,16 +17,21 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.creatix.chatapp.data.ChatGroup
 import com.creatix.chatapp.data.GroupMessage
+import com.creatix.chatapp.ui.theme.ChatAppBrandGradient
+import com.creatix.chatapp.ui.theme.ChatAppSentBubbleGradient
 import com.creatix.chatapp.viewmodel.AuthViewModel
 import com.creatix.chatapp.viewmodel.ChatViewModel
 import kotlinx.coroutines.delay
@@ -81,19 +87,26 @@ fun CustomGroupChatScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(group.name)
-                        Text(
-                            "${group.memberIds.size} عضو",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+            Box(modifier = Modifier.fillMaxWidth().background(ChatAppBrandGradient)) {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text(group.name, color = Color.White, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "${group.memberIds.size} عضو",
+                                fontSize = 12.sp,
+                                color = Color.White.copy(alpha = 0.8f)
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Text("‹", color = Color.White, style = MaterialTheme.typography.headlineSmall)
+                        }
                     }
-                },
-                navigationIcon = { IconButton(onClick = onBack) { Text("‹") } }
-            )
+                )
+            }
         },
         bottomBar = {
             Column(modifier = Modifier.fillMaxWidth()) {
@@ -122,29 +135,57 @@ fun CustomGroupChatScreen(
                     }
                 }
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surface)
+                        .padding(horizontal = 10.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     OutlinedTextField(
                         value = text,
                         onValueChange = { text = it },
                         modifier = Modifier.weight(1f),
-                        placeholder = { Text("اكتب رسالة للجروب...") }
+                        placeholder = { Text("اكتب رسالة للجروب...") },
+                        shape = RoundedCornerShape(24.dp),
+                        maxLines = 4,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            unfocusedBorderColor = Color.Transparent,
+                            focusedBorderColor = Color.Transparent
+                        )
                     )
                     Spacer(Modifier.width(8.dp))
-                    IconButton(onClick = {
-                        val currentlyEditing = editingMessage
-                        if (currentlyEditing != null) {
-                            chatViewModel.editCustomGroupMessage(group.id, currentlyEditing.id, text)
-                            editingMessage = null
-                            text = ""
-                        } else {
-                            chatViewModel.sendCustomGroupMessage(context, group.id, myUid, myName, text)
-                            text = ""
-                        }
-                        chatViewModel.setCustomGroupTyping(group.id, myUid, myName, false)
-                    }) {
-                        Icon(Icons.Default.Send, contentDescription = "إرسال")
+                    val canSend = text.isNotBlank()
+                    IconButton(
+                        onClick = {
+                            val currentlyEditing = editingMessage
+                            if (currentlyEditing != null) {
+                                chatViewModel.editCustomGroupMessage(group.id, currentlyEditing.id, text)
+                                editingMessage = null
+                                text = ""
+                            } else {
+                                chatViewModel.sendCustomGroupMessage(context, group.id, myUid, myName, text)
+                                text = ""
+                            }
+                            chatViewModel.setCustomGroupTyping(group.id, myUid, myName, false)
+                        },
+                        enabled = canSend,
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (canSend) ChatAppSentBubbleGradient
+                                else Brush.linearGradient(
+                                    listOf(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.surfaceVariant)
+                                )
+                            )
+                    ) {
+                        Icon(
+                            Icons.Default.Send,
+                            contentDescription = "إرسال",
+                            tint = if (canSend) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
@@ -236,20 +277,32 @@ private fun CustomGroupMessageBubble(
 ) {
     var menuExpanded by remember(message.id) { mutableStateOf(false) }
 
+    val bubbleShape = if (isMine) {
+        RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 18.dp, bottomEnd = 4.dp)
+    } else {
+        RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 4.dp, bottomEnd = 18.dp)
+    }
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
     ) {
         Box(
             modifier = Modifier
-                .clip(RoundedCornerShape(12.dp))
-                .background(if (isMine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
+                .shadow(if (isMine) 3.dp else 1.dp, bubbleShape, clip = false)
+                .clip(bubbleShape)
+                .background(
+                    if (isMine) ChatAppSentBubbleGradient
+                    else Brush.linearGradient(
+                        listOf(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.surfaceVariant)
+                    )
+                )
                 .combinedClickable(
                     enabled = !message.deleted,
                     onClick = {},
                     onLongClick = { menuExpanded = true }
                 )
-                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .padding(horizontal = 14.dp, vertical = 9.dp)
                 .widthIn(max = 260.dp)
         ) {
             MessageActionsMenu(
@@ -267,13 +320,18 @@ private fun CustomGroupMessageBubble(
                     text = "🚫 تم حذف هذه الرسالة",
                     fontStyle = FontStyle.Italic,
                     fontSize = 13.sp,
-                    color = if (isMine) Color.White.copy(alpha = 0.8f) else Color.Gray
+                    color = if (isMine) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 return@Box
             }
             Column {
                 if (!isMine) {
-                    Text(message.senderName, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        message.senderName,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
                 }
                 if (message.forwarded) {
                     Text(
@@ -283,16 +341,21 @@ private fun CustomGroupMessageBubble(
                         color = if (isMine) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Text(text = message.text, color = if (isMine) Color.White else Color.Black)
+                Text(
+                    text = message.text,
+                    color = if (isMine) Color.White else MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.bodyMedium
+                )
                 if (message.edited) {
                     Text(
                         text = "(معدلة)",
                         fontSize = 10.sp,
                         fontStyle = FontStyle.Italic,
-                        color = if (isMine) Color.White.copy(alpha = 0.7f) else Color.Gray
+                        color = if (isMine) Color.White.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
         }
     }
 }
+

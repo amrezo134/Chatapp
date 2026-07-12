@@ -92,7 +92,14 @@ class ChatRepository {
         }
     }
     /** إرسال رسالة (لازم مستند الشات يتعمل الأول عشان قواعد الأمان) */
-    suspend fun sendMessage(context: Context, senderId: String, receiverId: String, text: String) {
+    suspend fun sendMessage(
+        context: Context,
+        senderId: String,
+        receiverId: String,
+        text: String,
+        replyTo: Message? = null,
+        replyToSenderName: String = ""
+    ) {
         val chatId = chatIdFor(senderId, receiverId)
         val chatRef = db.collection("chats").document(chatId)
         val messageTimestamp = System.currentTimeMillis()
@@ -112,7 +119,18 @@ class ChatRepository {
             senderId = senderId,
             receiverId = receiverId,
             text = text,
-            timestamp = messageTimestamp
+            timestamp = messageTimestamp,
+            replyToId = replyTo?.id ?: "",
+            replyToText = replyTo?.let {
+                it.text.ifBlank {
+                    when {
+                        it.fileType == "image" -> "صورة"
+                        it.fileType.isNotBlank() -> it.fileName
+                        else -> ""
+                    }
+                }
+            } ?: "",
+            replyToSenderName = if (replyTo != null) replyToSenderName else ""
         )
         docRef.set(message).await()
 

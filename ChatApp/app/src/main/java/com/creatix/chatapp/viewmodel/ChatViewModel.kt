@@ -153,10 +153,24 @@ class ChatViewModel(
         }
     }
 
-    fun sendMessage(context: Context, senderId: String, receiverId: String, text: String) {
+    fun sendMessage(
+        context: Context,
+        senderId: String,
+        receiverId: String,
+        text: String,
+        replyTo: Message? = null,
+        replyToSenderName: String = ""
+    ) {
         if (text.isBlank()) return
         viewModelScope.launch {
-            repository.sendMessage(context.applicationContext, senderId, receiverId, text.trim())
+            repository.sendMessage(
+                context.applicationContext,
+                senderId,
+                receiverId,
+                text.trim(),
+                replyTo = replyTo,
+                replyToSenderName = replyToSenderName
+            )
         }
     }
 

@@ -12,7 +12,10 @@ data class Message(
     val fileType: String = "", // "image" أو "file"
     val replyToId: String = "",
     val replyToText: String = "",
-    val replyToSenderName: String = ""
+    val replyToSenderName: String = "",
+    val edited: Boolean = false,
+    val deleted: Boolean = false,
+    val forwarded: Boolean = false
 )
 
 fun chatIdFor(uidA: String, uidB: String): String {

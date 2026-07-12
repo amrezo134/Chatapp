@@ -11,7 +11,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import com.creatix.chatapp.ui.theme.ChatAppTheme
 import androidx.compose.ui.Modifier
 import com.google.firebase.auth.FirebaseAuth
@@ -45,6 +49,24 @@ class MainActivity : ComponentActivity() {
                     LaunchedEffect(Unit) {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                    }
+
+                    // بيراقب التطبيق كله (مش الشاشة بس): لما يفتح في المقدمة online=true،
+                    // لما يروح للخلفية (المستخدم يقفله أو يفتح تطبيق تاني) online=false
+                    DisposableEffect(Unit) {
+                        val observer = object : DefaultLifecycleObserver {
+                            override fun onStart(owner: LifecycleOwner) {
+                                authViewModel.setOnlinePresence(true)
+                            }
+
+                            override fun onStop(owner: LifecycleOwner) {
+                                authViewModel.setOnlinePresence(false)
+                            }
+                        }
+                        ProcessLifecycleOwner.get().lifecycle.addObserver(observer)
+                        onDispose {
+                            ProcessLifecycleOwner.get().lifecycle.removeObserver(observer)
                         }
                     }
 

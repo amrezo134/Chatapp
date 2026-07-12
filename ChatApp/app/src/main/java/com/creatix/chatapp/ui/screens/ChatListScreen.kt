@@ -40,10 +40,12 @@ fun ChatListScreen(
     val presenceMap by chatViewModel.presenceMap.collectAsState()
     val unreadCounts by chatViewModel.unreadCounts.collectAsState()
     val typingUsers by chatViewModel.typingUsers.collectAsState()
+    val groupUnreadCount by chatViewModel.groupUnreadCount.collectAsState()
 
     LaunchedEffect(Unit) {
         authViewModel.currentUid?.let { chatViewModel.loadUsers(it) }
         chatViewModel.observePresence()
+        authViewModel.currentUid?.let { chatViewModel.observeGroupUnreadCount(it) }
     }
 
     // لما قائمة اليوزرز توصل (أو تتحدث)، ابدأ راقب لكل واحد فيهم: رسايله الغير مقروءة، وهل بيكتب دلوقتي
@@ -55,8 +57,18 @@ fun ChatListScreen(
     Scaffold(
         floatingActionButtonPosition = FabPosition.Start,
         floatingActionButton = {
-            FloatingActionButton(onClick = onOpenGroupChat) {
-                Icon(Icons.Default.Groups, contentDescription = "الجروب العام")
+            Box {
+                FloatingActionButton(onClick = onOpenGroupChat) {
+                    Icon(Icons.Default.Groups, contentDescription = "الجروب العام")
+                }
+                if (groupUnreadCount > 0) {
+                    Badge(
+                        modifier = Modifier.align(Alignment.TopStart),
+                        containerColor = MaterialTheme.colorScheme.error
+                    ) {
+                        Text(if (groupUnreadCount > 99) "99+" else groupUnreadCount.toString())
+                    }
+                }
             }
         },
         topBar = {

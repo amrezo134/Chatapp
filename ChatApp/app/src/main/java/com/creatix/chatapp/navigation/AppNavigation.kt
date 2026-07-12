@@ -7,11 +7,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.collectAsState
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.creatix.chatapp.data.ChatUser
+import com.creatix.chatapp.data.ChatGroup
 import com.creatix.chatapp.ui.screens.*
 import com.creatix.chatapp.viewmodel.AuthViewModel
 import com.creatix.chatapp.viewmodel.ChatViewModel
@@ -22,6 +24,8 @@ private object Routes {
     const val CHAT_LIST = "chat_list"
     const val CHAT = "chat"
     const val GROUP_CHAT = "group_chat"
+    const val CREATE_GROUP = "create_group"
+    const val CUSTOM_GROUP_CHAT = "custom_group_chat"
     const val PROFILE = "profile"
     const val PROFILE_PHOTO = "profile_photo"
 }
@@ -33,6 +37,7 @@ fun AppNavigation(authViewModel: AuthViewModel) {
     val chatViewModel = remember { ChatViewModel() }
     var selectedUser by remember { mutableStateOf<ChatUser?>(null) }
     var profilePhotoUser by remember { mutableStateOf<ChatUser?>(null) }
+    var selectedGroup by remember { mutableStateOf<ChatGroup?>(null) }
 
     val startDestination = if (authViewModel.isLoggedIn) Routes.CHAT_LIST else Routes.LOGIN
 
@@ -72,6 +77,11 @@ fun AppNavigation(authViewModel: AuthViewModel) {
                         navController.navigate(Routes.CHAT)
                     },
                     onOpenGroupChat = { navController.navigate(Routes.GROUP_CHAT) },
+                    onOpenCustomGroup = { group ->
+                        selectedGroup = group
+                        navController.navigate(Routes.CUSTOM_GROUP_CHAT)
+                    },
+                    onOpenCreateGroup = { navController.navigate(Routes.CREATE_GROUP) },
                     onOpenProfile = { navController.navigate(Routes.PROFILE) },
                     onOpenProfilePhoto = { user ->
                         profilePhotoUser = user
@@ -124,6 +134,31 @@ fun AppNavigation(authViewModel: AuthViewModel) {
                     chatViewModel = chatViewModel,
                     onBack = { navController.popBackStack() }
                 )
+            }
+
+            composable(Routes.CREATE_GROUP) {
+                CreateGroupScreen(
+                    authViewModel = authViewModel,
+                    chatViewModel = chatViewModel,
+                    onBack = { navController.popBackStack() },
+                    onGroupCreated = {
+                        // بمجرد ما الجروب يتعمل، نرجع لقائمة المحادثات وهيظهر فيها تلقائيًا
+                        navController.popBackStack()
+                    }
+                )
+            }
+
+            composable(Routes.CUSTOM_GROUP_CHAT) {
+                selectedGroup?.let { group ->
+                    val myGroups by chatViewModel.myCustomGroups.collectAsState()
+                    val liveGroup = myGroups.find { it.id == group.id } ?: group
+                    CustomGroupChatScreen(
+                        authViewModel = authViewModel,
+                        chatViewModel = chatViewModel,
+                        group = liveGroup,
+                        onBack = { navController.popBackStack() }
+                    )
+                }
             }
 
             composable(Routes.PROFILE_PHOTO) {

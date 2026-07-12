@@ -128,13 +128,24 @@ fun ChatListScreen(
                         },
                         trailingContent = {
                             val unread = unreadCounts[user.uid] ?: 0
-                            // البادچ بيظهر بس لو فيه رسائل جديدة فعلاً، مش هيظهر أبدًا وهو صفر
+                            // الدائرة بيظهر بس لو فيه رسائل جديدة فعلاً، مش هتظهر أبدًا وهي صفر
                             if (unread > 0) {
-                                Badge(containerColor = MaterialTheme.colorScheme.primary) {
-                                    Text(if (unread > 99) "99+" else unread.toString())
+                                Box(
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primary),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = if (unread > 99) "99+" else unread.toString(),
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                        style = MaterialTheme.typography.titleMedium
+                                    )
                                 }
                             }
                         },
+,
                         modifier = Modifier.clickable { onOpenChat(user) }
                     )
                     HorizontalDivider()

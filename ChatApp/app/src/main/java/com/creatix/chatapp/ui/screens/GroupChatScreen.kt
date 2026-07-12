@@ -38,11 +38,17 @@ fun GroupChatScreen(
     var text by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
-    LaunchedEffect(Unit) { chatViewModel.loadGroupMessages() }
+    LaunchedEffect(Unit) {
+        chatViewModel.loadGroupMessages()
+        chatViewModel.markGroupAsRead(myUid)
+    }
     LaunchedEffect(myUid) { chatViewModel.observeGroupTyping(myUid) }
 
     DisposableEffect(Unit) {
-        onDispose { chatViewModel.setGroupTyping(myUid, myName, false) }
+        onDispose {
+            chatViewModel.setGroupTyping(myUid, myName, false)
+            chatViewModel.markGroupAsRead(myUid)
+        }
     }
 
     LaunchedEffect(text, myName) {

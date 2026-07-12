@@ -159,7 +159,8 @@ class ChatViewModel(
         receiverId: String,
         text: String,
         replyTo: Message? = null,
-        replyToSenderName: String = ""
+        replyToSenderName: String = "",
+        forwarded: Boolean = false
     ) {
         if (text.isBlank()) return
         viewModelScope.launch {
@@ -169,8 +170,34 @@ class ChatViewModel(
                 receiverId,
                 text.trim(),
                 replyTo = replyTo,
-                replyToSenderName = replyToSenderName
+                replyToSenderName = replyToSenderName,
+                forwarded = forwarded
             )
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // تعديل وحذف الرسائل (شات خاص)
+    // ---------------------------------------------------------------
+
+    fun editMessage(chatId: String, messageId: String, newText: String) {
+        if (newText.isBlank()) return
+        viewModelScope.launch {
+            try {
+                repository.editMessage(chatId, messageId, newText.trim())
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun deleteMessage(chatId: String, messageId: String) {
+        viewModelScope.launch {
+            try {
+                repository.deleteMessage(chatId, messageId)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 
@@ -198,10 +225,41 @@ class ChatViewModel(
         }
     }
 
-    fun sendGroupMessage(context: Context, senderId: String, senderName: String, text: String) {
+    fun sendGroupMessage(
+        context: Context,
+        senderId: String,
+        senderName: String,
+        text: String,
+        forwarded: Boolean = false
+    ) {
         if (text.isBlank()) return
         viewModelScope.launch {
-            repository.sendGroupMessage(context.applicationContext, senderId, senderName, text.trim())
+            repository.sendGroupMessage(context.applicationContext, senderId, senderName, text.trim(), forwarded = forwarded)
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // تعديل وحذف رسائل الجروب العام
+    // ---------------------------------------------------------------
+
+    fun editGroupMessage(messageId: String, newText: String) {
+        if (newText.isBlank()) return
+        viewModelScope.launch {
+            try {
+                repository.editGroupMessage(messageId, newText.trim())
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun deleteGroupMessage(messageId: String) {
+        viewModelScope.launch {
+            try {
+                repository.deleteGroupMessage(messageId)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 
@@ -311,10 +369,42 @@ class ChatViewModel(
         }
     }
 
-    fun sendCustomGroupMessage(context: Context, groupId: String, senderId: String, senderName: String, text: String) {
+    fun sendCustomGroupMessage(
+        context: Context,
+        groupId: String,
+        senderId: String,
+        senderName: String,
+        text: String,
+        forwarded: Boolean = false
+    ) {
         if (text.isBlank()) return
         viewModelScope.launch {
-            repository.sendCustomGroupMessage(context.applicationContext, groupId, senderId, senderName, text.trim())
+            repository.sendCustomGroupMessage(context.applicationContext, groupId, senderId, senderName, text.trim(), forwarded = forwarded)
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // تعديل وحذف رسائل الجروبات المخصصة
+    // ---------------------------------------------------------------
+
+    fun editCustomGroupMessage(groupId: String, messageId: String, newText: String) {
+        if (newText.isBlank()) return
+        viewModelScope.launch {
+            try {
+                repository.editCustomGroupMessage(groupId, messageId, newText.trim())
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun deleteCustomGroupMessage(groupId: String, messageId: String) {
+        viewModelScope.launch {
+            try {
+                repository.deleteCustomGroupMessage(groupId, messageId)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 

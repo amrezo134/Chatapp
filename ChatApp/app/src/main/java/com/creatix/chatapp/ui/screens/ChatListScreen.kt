@@ -145,7 +145,6 @@ fun ChatListScreen(
                                 }
                             }
                         },
-,
                         modifier = Modifier.clickable { onOpenChat(user) }
                     )
                     HorizontalDivider()

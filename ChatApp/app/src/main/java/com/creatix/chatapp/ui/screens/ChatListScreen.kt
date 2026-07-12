@@ -37,9 +37,11 @@ fun ChatListScreen(
     animatedVisibilityScope: AnimatedVisibilityScope
 ) {
     val users by chatViewModel.users.collectAsState()
+    val presenceMap by chatViewModel.presenceMap.collectAsState()
 
     LaunchedEffect(Unit) {
         authViewModel.currentUid?.let { chatViewModel.loadUsers(it) }
+        chatViewModel.observePresence()
     }
 
     Scaffold(
@@ -104,7 +106,8 @@ fun ChatListScreen(
                         supportingContent = {
                             Column {
                                 if (user.bio.isNotBlank()) Text(user.bio, maxLines = 1)
-                                Text(if (user.online) "متصل الآن" else "غير متصل")
+                                val isOnline = presenceMap[user.uid] == true
+                                Text(if (isOnline) "متصل الآن" else "غير متصل")
                             }
                         },
                         modifier = Modifier.clickable { onOpenChat(user) }

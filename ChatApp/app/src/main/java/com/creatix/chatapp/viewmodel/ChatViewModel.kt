@@ -11,6 +11,7 @@ import com.creatix.chatapp.repository.ChatRepository
 import com.creatix.chatapp.repository.PresenceRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 class ChatViewModel(
@@ -176,5 +177,39 @@ class ChatViewModel(
 
     fun setGroupTyping(myUid: String, myName: String, isTyping: Boolean) {
         repository.setGroupTyping(myUid, myName, isTyping)
+    }
+
+    // ---------------------------------------------------------------
+    // عدد رسائل الجروب الغير مقروءة
+    // ---------------------------------------------------------------
+
+    private val _groupUnreadCount = MutableStateFlow(0)
+    val groupUnreadCount: StateFlow<Int> = _groupUnreadCount
+
+    /** بيراقب عدد رسائل الجروب اللي جت من غيري بعد آخر مرة فتحت فيها الجروب */
+    fun observeGroupUnreadCount(myUid: String) {
+        viewModelScope.launch {
+            try {
+                combine(
+                    repository.observeGroupMessages(),
+                    repository.observeGroupLastRead(myUid)
+                ) { messages, lastRead ->
+                    messages.count { it.senderId != myUid && it.timestamp > lastRead }
+                }.collect { _groupUnreadCount.value = it }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    /** بتتنادى وقت ما اليوزر يفتح شاشة الجروب عشان نصفّر العداد */
+    fun markGroupAsRead(myUid: String) {
+        viewModelScope.launch {
+            try {
+                repository.markGroupAsRead(myUid)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 }

@@ -63,7 +63,7 @@ fun MessageActionsMenu(
         }
         if (canDelete) {
             DropdownMenuItem(
-                text = { Text("حذف", color = Color(0xFFD32F2F)) },
+                text = { Text("حذف", color = MaterialTheme.colorScheme.error) },
                 onClick = {
                     onDismiss()
                     onDelete()
@@ -142,10 +142,11 @@ fun DeleteMessageConfirmDialog(
             TextButton(onClick = {
                 onDismiss()
                 onConfirm()
-            }) { Text("حذف", color = Color(0xFFD32F2F)) }
+            }) { Text("حذف", color = MaterialTheme.colorScheme.error) }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("إلغاء") }
         }
     )
 }
+

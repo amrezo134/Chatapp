@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.creatix.chatapp.data.ChatUser
 import com.creatix.chatapp.data.Message
 import com.creatix.chatapp.data.GroupMessage
+import com.creatix.chatapp.data.chatIdFor
 import com.creatix.chatapp.repository.ChatRepository
 import com.creatix.chatapp.repository.PresenceRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -66,6 +67,48 @@ class ChatViewModel(
     fun loadUsers(currentUid: String) {
         viewModelScope.launch {
             repository.observeUsers(currentUid).collect { _users.value = it }
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // عدد الرسائل غير المقروءة + "بيكتب الآن" لكل يوزر في قائمة المحادثات
+    // ---------------------------------------------------------------
+
+    private val _unreadCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
+    /** uid -> عدد الرسائل اللي ما اتشافتش. لو مفيش قيمة أو القيمة صفر يبقى معندوش رسائل جديدة */
+    val unreadCounts: StateFlow<Map<String, Int>> = _unreadCounts
+
+    private val _typingUsers = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    /** uid -> هل ده بيكتب لي دلوقتي؟ */
+    val typingUsers: StateFlow<Map<String, Boolean>> = _typingUsers
+
+    private val observedChatExtras = mutableSetOf<String>()
+
+    /** بتتنادى كل ما قائمة اليوزرز تتحدث؛ بتبدأ مراقبة الرسائل الغير مقروءة والكتابة لكل يوزر جديد بس (مرة واحدة لكل واحد) */
+    fun observeChatListExtras(myUid: String, users: List<ChatUser>) {
+        users.forEach { user ->
+            if (!observedChatExtras.add(user.uid)) return@forEach
+            val chatId = chatIdFor(myUid, user.uid)
+
+            viewModelScope.launch {
+                try {
+                    repository.observeUnreadCount(chatId, myUid).collect { count ->
+                        _unreadCounts.value = _unreadCounts.value + (user.uid to count)
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+
+            viewModelScope.launch {
+                try {
+                    repository.observeTyping(chatId, user.uid).collect { isTyping ->
+                        _typingUsers.value = _typingUsers.value + (user.uid to isTyping)
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
     }
 

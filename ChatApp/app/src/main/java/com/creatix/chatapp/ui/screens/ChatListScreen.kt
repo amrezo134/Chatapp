@@ -11,6 +11,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.GroupAdd
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,6 +23,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.creatix.chatapp.data.ChatUser
+import com.creatix.chatapp.data.ChatGroup
 import com.creatix.chatapp.viewmodel.AuthViewModel
 import com.creatix.chatapp.viewmodel.ChatViewModel
 import androidx.compose.material.icons.filled.Groups
@@ -31,27 +35,41 @@ fun ChatListScreen(
     chatViewModel: ChatViewModel,
     onOpenChat: (ChatUser) -> Unit,
     onOpenGroupChat: () -> Unit,
+    onOpenCustomGroup: (ChatGroup) -> Unit,
+    onOpenCreateGroup: () -> Unit,
     onOpenProfile: () -> Unit,
     onOpenProfilePhoto: (ChatUser) -> Unit,
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope
 ) {
-    val users by chatViewModel.users.collectAsState()
+    val users by chatViewModel.filteredUsers.collectAsState()
+    val searchQuery by chatViewModel.searchQuery.collectAsState()
     val presenceMap by chatViewModel.presenceMap.collectAsState()
     val unreadCounts by chatViewModel.unreadCounts.collectAsState()
     val typingUsers by chatViewModel.typingUsers.collectAsState()
     val groupUnreadCount by chatViewModel.groupUnreadCount.collectAsState()
+    val myCustomGroups by chatViewModel.myCustomGroups.collectAsState()
+    val customGroupUnreadCounts by chatViewModel.customGroupUnreadCounts.collectAsState()
 
     LaunchedEffect(Unit) {
         authViewModel.currentUid?.let { chatViewModel.loadUsers(it) }
         chatViewModel.observePresence()
-        authViewModel.currentUid?.let { chatViewModel.observeGroupUnreadCount(it) }
+        authViewModel.currentUid?.let {
+            chatViewModel.observeGroupUnreadCount(it)
+            chatViewModel.observeMyCustomGroups(it)
+        }
     }
 
     // لما قائمة اليوزرز توصل (أو تتحدث)، ابدأ راقب لكل واحد فيهم: رسايله الغير مقروءة، وهل بيكتب دلوقتي
     LaunchedEffect(users) {
         val myUid = authViewModel.currentUid ?: return@LaunchedEffect
         if (users.isNotEmpty()) chatViewModel.observeChatListExtras(myUid, users)
+    }
+
+    // لما قائمة جروباتي المخصصة توصل (أو تتحدث)، ابدأ راقب عدد الرسائل الغير مقروءة لكل واحد فيها
+    LaunchedEffect(myCustomGroups) {
+        val myUid = authViewModel.currentUid ?: return@LaunchedEffect
+        if (myCustomGroups.isNotEmpty()) chatViewModel.observeCustomGroupListExtras(myUid, myCustomGroups)
     }
 
     Scaffold(
@@ -75,6 +93,9 @@ fun ChatListScreen(
             TopAppBar(
                 title = { Text("المحادثات") },
                 actions = {
+                    IconButton(onClick = onOpenCreateGroup) {
+                        Icon(Icons.Default.GroupAdd, contentDescription = "إنشاء جروب جديد")
+                    }
                     IconButton(onClick = onOpenProfile) {
                         Icon(Icons.Default.MoreVert, contentDescription = "المزيد")
                     }
@@ -82,15 +103,62 @@ fun ChatListScreen(
             )
         }
     ) { padding ->
-        if (users.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("مفيش مستخدمين تانيين لسه")
-            }
-        } else {
-            LazyColumn(modifier = Modifier.padding(padding)) {
+        Column(modifier = Modifier.padding(padding)) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { chatViewModel.onSearchQueryChange(it) },
+                placeholder = { Text("دور على مستخدم بالاسم...") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (searchQuery.isNotBlank()) {
+                        IconButton(onClick = { chatViewModel.onSearchQueryChange("") }) {
+                            Icon(Icons.Default.Close, contentDescription = "مسح البحث")
+                        }
+                    }
+                },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
+            )
+
+            LazyColumn(modifier = Modifier.weight(1f)) {
+                if (myCustomGroups.isNotEmpty() && searchQuery.isBlank()) {
+                    item {
+                        Text(
+                            "الجروبات بتاعتي",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
+                    items(myCustomGroups, key = { "group_${it.id}" }) { group ->
+                        CustomGroupRow(
+                            group = group,
+                            unreadCount = customGroupUnreadCounts[group.id] ?: 0,
+                            onClick = { onOpenCustomGroup(group) }
+                        )
+                        HorizontalDivider()
+                    }
+                    item {
+                        Text(
+                            "المحادثات",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                    }
+                }
+
+                if (users.isEmpty()) {
+                    item {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(if (searchQuery.isBlank()) "مفيش مستخدمين تانيين لسه" else "مفيش نتايج بالاسم ده")
+                        }
+                    }
+                }
+
                 items(users) { user ->
                     ListItem(
                         leadingContent = {
@@ -164,4 +232,46 @@ fun ChatListScreen(
             }
         }
     }
+}
+
+@Composable
+private fun CustomGroupRow(group: ChatGroup, unreadCount: Int, onClick: () -> Unit) {
+    ListItem(
+        leadingContent = {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.secondaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.Groups, contentDescription = null)
+            }
+        },
+        headlineContent = { Text(group.name) },
+        supportingContent = {
+            Text(
+                group.lastMessage.ifBlank { "مفيش رسائل لسه" },
+                maxLines = 1
+            )
+        },
+        trailingContent = {
+            if (unreadCount > 0) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (unreadCount > 99) "99+" else unreadCount.toString(),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                }
+            }
+        },
+        modifier = Modifier.clickable(onClick = onClick)
+    )
 }

@@ -7,16 +7,31 @@ import com.creatix.chatapp.data.ChatUser
 import com.creatix.chatapp.data.Message
 import com.creatix.chatapp.data.GroupMessage
 import com.creatix.chatapp.repository.ChatRepository
+import com.creatix.chatapp.repository.PresenceRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 class ChatViewModel(
-    private val repository: ChatRepository = ChatRepository()
+    private val repository: ChatRepository = ChatRepository(),
+    private val presenceRepository: PresenceRepository = PresenceRepository()
 ) : ViewModel() {
 
     private val _users = MutableStateFlow<List<ChatUser>>(emptyList())
     val users: StateFlow<List<ChatUser>> = _users
+
+    private val _presenceMap = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    val presenceMap: StateFlow<Map<String, Boolean>> = _presenceMap
+
+    fun observePresence() {
+        viewModelScope.launch {
+            try {
+                presenceRepository.observeAllPresence().collect { _presenceMap.value = it }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
 
     private val _myDisplayName = MutableStateFlow("أنا")
     val myDisplayName: StateFlow<String> = _myDisplayName
@@ -38,7 +53,7 @@ class ChatViewModel(
 
     private val _messages = MutableStateFlow<List<Message>>(emptyList())
     val messages: StateFlow<List<Message>> = _messages
-    
+
     private val _groupMessages = MutableStateFlow<List<GroupMessage>>(emptyList())
     val groupMessages: StateFlow<List<GroupMessage>> = _groupMessages
 
@@ -55,18 +70,18 @@ class ChatViewModel(
     }
 
     fun loadMessages(chatId: String, myUid: String, otherUid: String) {
-            viewModelScope.launch {
-                repository.ensureChatDocument(myUid, otherUid)
-                try {
-                    repository.observeMessages(chatId).collect { list ->
-                        _messages.value = list
-                        repository.markMessagesAsSeen(chatId, myUid, list)
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
+        viewModelScope.launch {
+            repository.ensureChatDocument(myUid, otherUid)
+            try {
+                repository.observeMessages(chatId).collect { list ->
+                    _messages.value = list
+                    repository.markMessagesAsSeen(chatId, myUid, list)
                 }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
+    }
 
     fun sendMessage(context: Context, senderId: String, receiverId: String, text: String) {
         if (text.isBlank()) return
@@ -76,18 +91,19 @@ class ChatViewModel(
     }
 
     fun observeTyping(chatId: String, otherUid: String) {
-            viewModelScope.launch {
-                try {
-                    repository.observeTyping(chatId, otherUid).collect { _otherUserTyping.value = it }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
+        viewModelScope.launch {
+            try {
+                repository.observeTyping(chatId, otherUid).collect { _otherUserTyping.value = it }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
+    }
 
     fun setTyping(chatId: String, myUid: String, isTyping: Boolean) {
         repository.setTyping(chatId, myUid, isTyping)
     }
+
     fun loadGroupMessages() {
         viewModelScope.launch {
             try {

@@ -98,7 +98,8 @@ class ChatRepository {
         receiverId: String,
         text: String,
         replyTo: Message? = null,
-        replyToSenderName: String = ""
+        replyToSenderName: String = "",
+        forwarded: Boolean = false
     ) {
         val chatId = chatIdFor(senderId, receiverId)
         val chatRef = db.collection("chats").document(chatId)
@@ -130,12 +131,37 @@ class ChatRepository {
                     }
                 }
             } ?: "",
-            replyToSenderName = if (replyTo != null) replyToSenderName else ""
+            replyToSenderName = if (replyTo != null) replyToSenderName else "",
+            forwarded = forwarded
         )
         docRef.set(message).await()
 
         // بعد ما الرسالة اتسجلت، ابعت إشعار push مباشر للمستقبل (بدون سيرفر)
         notifyReceiver(context, senderId, receiverId, text)
+    }
+
+    /** تعديل نص رسالة في شات خاص (بيستخدمها صاحب الرسالة بس من الـ UI) */
+    suspend fun editMessage(chatId: String, messageId: String, newText: String) {
+        db.collection("chats").document(chatId)
+            .collection("messages").document(messageId)
+            .update(mapOf("text" to newText, "edited" to true))
+            .await()
+    }
+
+    /** حذف رسالة في شات خاص (حذف عند الطرفين، بيسيب أثر "تم حذف هذه الرسالة") */
+    suspend fun deleteMessage(chatId: String, messageId: String) {
+        db.collection("chats").document(chatId)
+            .collection("messages").document(messageId)
+            .update(
+                mapOf(
+                    "text" to "",
+                    "deleted" to true,
+                    "fileUrl" to "",
+                    "fileName" to "",
+                    "fileType" to ""
+                )
+            )
+            .await()
     }
 
     /**
@@ -310,7 +336,13 @@ class ChatRepository {
     }
 
     /** إرسال رسالة في الجروب العام */
-    suspend fun sendGroupMessage(context: Context, senderId: String, senderName: String, text: String) {
+    suspend fun sendGroupMessage(
+        context: Context,
+        senderId: String,
+        senderName: String,
+        text: String,
+        forwarded: Boolean = false
+    ) {
         val groupRef = db.collection("groups").document(GLOBAL_GROUP_ID)
         groupRef.set(mapOf("lastMessage" to text, "lastTimestamp" to System.currentTimeMillis()), SetOptions.merge()).await()
 
@@ -319,12 +351,37 @@ class ChatRepository {
             id = docRef.id,
             senderId = senderId,
             senderName = senderName,
-            text = text
+            text = text,
+            forwarded = forwarded
         )
         docRef.set(message).await()
 
         // بعد ما الرسالة اتسجلت، ابعت إشعار push لكل أعضاء الجروب (كل المستخدمين ما عدا اللي بعت)
         notifyGroupMembers(context, senderId, senderName, text)
+    }
+
+    /** تعديل نص رسالة في الجروب العام */
+    suspend fun editGroupMessage(messageId: String, newText: String) {
+        db.collection("groups").document(GLOBAL_GROUP_ID)
+            .collection("messages").document(messageId)
+            .update(mapOf("text" to newText, "edited" to true))
+            .await()
+    }
+
+    /** حذف رسالة في الجروب العام */
+    suspend fun deleteGroupMessage(messageId: String) {
+        db.collection("groups").document(GLOBAL_GROUP_ID)
+            .collection("messages").document(messageId)
+            .update(
+                mapOf(
+                    "text" to "",
+                    "deleted" to true,
+                    "fileUrl" to "",
+                    "fileName" to "",
+                    "fileType" to ""
+                )
+            )
+            .await()
     }
 
     /**
@@ -423,7 +480,8 @@ class ChatRepository {
         groupId: String,
         senderId: String,
         senderName: String,
-        text: String
+        text: String,
+        forwarded: Boolean = false
     ) {
         val groupRef = db.collection("custom_groups").document(groupId)
         groupRef.set(
@@ -436,11 +494,36 @@ class ChatRepository {
             id = docRef.id,
             senderId = senderId,
             senderName = senderName,
-            text = text
+            text = text,
+            forwarded = forwarded
         )
         docRef.set(message).await()
 
         notifyCustomGroupMembers(context, groupId, senderId, senderName, text)
+    }
+
+    /** تعديل نص رسالة في جروب مخصص */
+    suspend fun editCustomGroupMessage(groupId: String, messageId: String, newText: String) {
+        db.collection("custom_groups").document(groupId)
+            .collection("messages").document(messageId)
+            .update(mapOf("text" to newText, "edited" to true))
+            .await()
+    }
+
+    /** حذف رسالة في جروب مخصص */
+    suspend fun deleteCustomGroupMessage(groupId: String, messageId: String) {
+        db.collection("custom_groups").document(groupId)
+            .collection("messages").document(messageId)
+            .update(
+                mapOf(
+                    "text" to "",
+                    "deleted" to true,
+                    "fileUrl" to "",
+                    "fileName" to "",
+                    "fileType" to ""
+                )
+            )
+            .await()
     }
 
     /** بيبعت إشعار push لكل أعضاء الجروب المخصص ما عدا اللي بعت الرسالة */

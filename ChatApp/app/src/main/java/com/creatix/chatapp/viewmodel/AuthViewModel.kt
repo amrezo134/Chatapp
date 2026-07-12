@@ -36,7 +36,10 @@ class AuthViewModel(
         viewModelScope.launch {
             val result = repository.login(email.trim(), password)
             _authState.value = result.fold(
-                onSuccess = { AuthState.Success },
+                onSuccess = {
+                    presenceRepository.goOnline()
+                    AuthState.Success
+                },
                 onFailure = { AuthState.Error(it.message ?: "حصل خطأ في تسجيل الدخول") }
             )
         }
@@ -51,7 +54,10 @@ class AuthViewModel(
         viewModelScope.launch {
             val result = repository.register(email.trim(), password, displayName.trim(), photoUrl.trim(), bio.trim())
             _authState.value = result.fold(
-                onSuccess = { AuthState.Success },
+                onSuccess = {
+                    presenceRepository.goOnline()
+                    AuthState.Success
+                },
                 onFailure = { AuthState.Error(it.message ?: "حصل خطأ في إنشاء الحساب") }
             )
         }

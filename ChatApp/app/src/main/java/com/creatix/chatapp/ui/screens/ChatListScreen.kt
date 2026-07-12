@@ -38,10 +38,18 @@ fun ChatListScreen(
 ) {
     val users by chatViewModel.users.collectAsState()
     val presenceMap by chatViewModel.presenceMap.collectAsState()
+    val unreadCounts by chatViewModel.unreadCounts.collectAsState()
+    val typingUsers by chatViewModel.typingUsers.collectAsState()
 
     LaunchedEffect(Unit) {
         authViewModel.currentUid?.let { chatViewModel.loadUsers(it) }
         chatViewModel.observePresence()
+    }
+
+    // لما قائمة اليوزرز توصل (أو تتحدث)، ابدأ راقب لكل واحد فيهم: رسايله الغير مقروءة، وهل بيكتب دلوقتي
+    LaunchedEffect(users) {
+        val myUid = authViewModel.currentUid ?: return@LaunchedEffect
+        if (users.isNotEmpty()) chatViewModel.observeChatListExtras(myUid, users)
     }
 
     Scaffold(
@@ -106,8 +114,25 @@ fun ChatListScreen(
                         supportingContent = {
                             Column {
                                 if (user.bio.isNotBlank()) Text(user.bio, maxLines = 1)
-                                val isOnline = presenceMap[user.uid] == true
-                                Text(if (isOnline) "متصل الآن" else "غير متصل")
+                                val isTyping = typingUsers[user.uid] == true
+                                if (isTyping) {
+                                    Text(
+                                        "بيكتب الآن...",
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                } else {
+                                    val isOnline = presenceMap[user.uid] == true
+                                    Text(if (isOnline) "متصل الآن" else "غير متصل")
+                                }
+                            }
+                        },
+                        trailingContent = {
+                            val unread = unreadCounts[user.uid] ?: 0
+                            // البادچ بيظهر بس لو فيه رسائل جديدة فعلاً، مش هيظهر أبدًا وهو صفر
+                            if (unread > 0) {
+                                Badge(containerColor = MaterialTheme.colorScheme.primary) {
+                                    Text(if (unread > 99) "99+" else unread.toString())
+                                }
                             }
                         },
                         modifier = Modifier.clickable { onOpenChat(user) }

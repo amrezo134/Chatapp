@@ -4,9 +4,11 @@ import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material3.*
@@ -14,11 +16,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.creatix.chatapp.ui.theme.ChatAppBrandGradient
 import com.creatix.chatapp.viewmodel.AuthViewModel
 import com.creatix.chatapp.viewmodel.ChatViewModel
 
@@ -49,12 +54,17 @@ fun ProfileScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("الملف الشخصي") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Text("‹") }
-                }
-            )
+            Box(modifier = Modifier.fillMaxWidth().background(ChatAppBrandGradient)) {
+                TopAppBar(
+                    title = { Text("الملف الشخصي", color = Color.White, fontWeight = FontWeight.SemiBold) },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Text("‹", color = Color.White, style = MaterialTheme.typography.headlineSmall)
+                        }
+                    }
+                )
+            }
         }
     ) { padding ->
         Column(
@@ -73,8 +83,10 @@ fun ProfileScreen(
                         contentDescription = displayName,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
-                            .size(120.dp)
+                            .size(128.dp)
+                            .shadow(8.dp, CircleShape)
                             .clip(CircleShape)
+                            .border(3.dp, MaterialTheme.colorScheme.primary, CircleShape)
                             .sharedElement(
                                 state = rememberSharedContentState(key = "profile-$myUid"),
                                 animatedVisibilityScope = animatedVisibilityScope
@@ -84,41 +96,49 @@ fun ProfileScreen(
                 } else {
                     Box(
                         modifier = Modifier
-                            .size(120.dp)
+                            .size(128.dp)
+                            .shadow(8.dp, CircleShape)
                             .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primaryContainer)
+                            .background(ChatAppBrandGradient)
                             .clickable { onOpenMyPhoto() },
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             (displayName.firstOrNull() ?: '?').toString(),
-                            fontSize = 40.sp
+                            fontSize = 44.sp,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }
             }
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(18.dp))
 
             Text(
                 text = displayName,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold
+                style = MaterialTheme.typography.headlineSmall
             )
 
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(40.dp))
 
-            OutlinedButton(
+            Button(
                 onClick = {
                     authViewModel.logout()
                     onLoggedOut()
                 },
-                modifier = Modifier.fillMaxWidth()
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.error
+                ),
+                modifier = Modifier.fillMaxWidth().height(50.dp)
             ) {
                 Icon(Icons.Default.ExitToApp, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("تسجيل الخروج")
+                Text("تسجيل الخروج", fontWeight = FontWeight.SemiBold)
             }
         }
     }
 }
+

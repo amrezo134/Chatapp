@@ -183,6 +183,23 @@ class ChatRepository {
     }
 
     // ---------------------------------------------------------------
+    // ميزة "عدد الرسائل الغير مقروءة" (Unread count) — تظهر في قائمة المحادثات
+    // ---------------------------------------------------------------
+
+    /** بيراقب عدد الرسائل اللي جاتلي في الشات ده ولسه ما اتفتحتش (seen = false) */
+    fun observeUnreadCount(chatId: String, myUid: String): Flow<Int> = callbackFlow {
+        val listener = db.collection("chats").document(chatId)
+            .collection("messages")
+            .whereEqualTo("receiverId", myUid)
+            .whereEqualTo("seen", false)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) { close(error); return@addSnapshotListener }
+                trySend(snapshot?.size() ?: 0)
+            }
+        awaitClose { listener.remove() }
+    }
+
+    // ---------------------------------------------------------------
     // ميزة "تمت القراءة" (Read receipts) — بونص بسيط بيفيد الإشعارات كمان
     // ---------------------------------------------------------------
 

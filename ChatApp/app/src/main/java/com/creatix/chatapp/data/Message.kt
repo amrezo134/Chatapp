@@ -9,7 +9,15 @@ data class Message(
     val seen: Boolean = false,
     val fileUrl: String = "",
     val fileName: String = "",
-    val fileType: String = "", // "image" أو "file"
+    val fileType: String = "", // image, video, audio, document, contact, poll, event, sticker
+    val durationMs: Long = 0L,          // للصوت والفيديو
+    val contactName: String = "",       // لمشاركة جهة اتصال
+    val contactPhone: String = "",
+    val pollQuestion: String = "",      // للاستطلاع
+    val pollOptions: List<String> = emptyList(),
+    val pollVotes: Map<String, Int> = emptyMap(), // userId -> optionIndex
+    val eventTitle: String = "",        // للمناسبة
+    val eventTimestamp: Long = 0L,
     val replyToId: String = "",
     val replyToText: String = "",
     val replyToSenderName: String = "",

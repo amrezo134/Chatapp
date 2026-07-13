@@ -160,9 +160,13 @@ class ChatViewModel(
         text: String,
         replyTo: Message? = null,
         replyToSenderName: String = "",
-        forwarded: Boolean = false
+        forwarded: Boolean = false,
+        fileUrl: String = "",
+        fileName: String = "",
+        fileType: String = "",
+        durationMs: Long = 0L
     ) {
-        if (text.isBlank()) return
+        if (text.isBlank() && fileUrl.isBlank()) return
         viewModelScope.launch {
             repository.sendMessage(
                 context.applicationContext,
@@ -171,7 +175,45 @@ class ChatViewModel(
                 text.trim(),
                 replyTo = replyTo,
                 replyToSenderName = replyToSenderName,
-                forwarded = forwarded
+                forwarded = forwarded,
+                fileUrl = fileUrl,
+                fileName = fileName,
+                fileType = fileType,
+                durationMs = durationMs
+            )
+        }
+    }
+
+    /** بترفع بايتات ملف على Cloudflare وترجع رابطه - بتستخدمها الشاشة قبل ما تبعت رسالة فيها مرفق */
+    suspend fun uploadFile(bytes: ByteArray, fileName: String, mimeType: String): String =
+        repository.uploadFileToCloudflare(bytes, fileName, mimeType)
+
+    /** إرسال رسالة "مشاركة جهة اتصال" */
+    fun sendContactMessage(context: Context, senderId: String, otherUid: String, contactName: String, contactPhone: String) {
+        viewModelScope.launch {
+            repository.sendMessage(
+                context.applicationContext, senderId, otherUid, text = "",
+                contactName = contactName, contactPhone = contactPhone
+            )
+        }
+    }
+
+    /** إرسال رسالة "استطلاع رأي" */
+    fun sendPollMessage(context: Context, senderId: String, otherUid: String, question: String, options: List<String>) {
+        viewModelScope.launch {
+            repository.sendMessage(
+                context.applicationContext, senderId, otherUid, text = "",
+                pollQuestion = question, pollOptions = options
+            )
+        }
+    }
+
+    /** إرسال رسالة "مناسبة" */
+    fun sendEventMessage(context: Context, senderId: String, otherUid: String, eventTitle: String, eventTimestamp: Long) {
+        viewModelScope.launch {
+            repository.sendMessage(
+                context.applicationContext, senderId, otherUid, text = "",
+                eventTitle = eventTitle, eventTimestamp = eventTimestamp
             )
         }
     }

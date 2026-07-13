@@ -1,5 +1,13 @@
 package com.creatix.chatapp.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.media.MediaRecorder
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -10,8 +18,11 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,6 +31,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -28,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.creatix.chatapp.data.ChatGroup
 import com.creatix.chatapp.data.GroupMessage
 import com.creatix.chatapp.ui.theme.ChatAppBrandGradient
@@ -35,6 +48,8 @@ import com.creatix.chatapp.ui.theme.ChatAppSentBubbleGradient
 import com.creatix.chatapp.viewmodel.AuthViewModel
 import com.creatix.chatapp.viewmodel.ChatViewModel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,7 +73,84 @@ fun CustomGroupChatScreen(
     var forwardTarget by remember { mutableStateOf<GroupMessage?>(null) }
     var deleteTarget by remember { mutableStateOf<GroupMessage?>(null) }
     val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current
+
+    // ---- حالة قائمة الإرفاق وتسجيل الصوت ----
+    var showAttachmentMenu by remember { mutableStateOf(false) }
+    var isRecordingAudio by remember { mutableStateOf(false) }
+    var uploadError by remember { mutableStateOf<String?>(null) }
+    var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
+    var audioFile by remember { mutableStateOf<File?>(null) }
+
+    // بيرفع الملف على Cloudflare وبيبعت الرسالة لجروب الأصدقاء، وبيظهر رسالة خطأ لو فشل
+    fun uploadAndSend(bytes: ByteArray, fileName: String, mimeType: String, fileType: String) {
+        coroutineScope.launch {
+            try {
+                val url = chatViewModel.uploadFile(bytes, fileName, mimeType)
+                chatViewModel.sendCustomGroupMessage(
+                    context, group.id, myUid, myName, "",
+                    fileUrl = url,
+                    fileName = fileName,
+                    fileType = fileType
+                )
+            } catch (e: Exception) {
+                uploadError = e.message ?: "فشل رفع الملف"
+            }
+        }
+    }
+
+    // لواتشر اختيار مستند
+    val pickDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri ?: return@rememberLauncherForActivityResult
+        coroutineScope.launch {
+            val bytes = context.contentResolver.openInputStream(uri)?.readBytes()
+            if (bytes == null) { uploadError = "تعذر قراءة الملف"; return@launch }
+            var name = "document"
+            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (idx >= 0 && cursor.moveToFirst()) name = cursor.getString(idx) ?: name
+            }
+            val mime = context.contentResolver.getType(uri) ?: "application/octet-stream"
+            uploadAndSend(bytes, name, mime, "document")
+        }
+    }
+
+    // لواتشر اختيار صورة أو فيديو من المعرض
+    val pickMediaLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        uri ?: return@rememberLauncherForActivityResult
+        coroutineScope.launch {
+            val bytes = context.contentResolver.openInputStream(uri)?.readBytes()
+            if (bytes == null) { uploadError = "تعذر قراءة الملف"; return@launch }
+            val mime = context.contentResolver.getType(uri) ?: "image/jpeg"
+            val kind = if (mime.startsWith("video")) "video" else "image"
+            uploadAndSend(bytes, "$kind.${mime.substringAfterLast('/')}", mime, kind)
+        }
+    }
+
+    // لواتشر تسجيل الصوت (طلب الإذن)
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            val file = File(context.cacheDir, "voice_${System.currentTimeMillis()}.m4a")
+            val recorder = MediaRecorder().apply {
+                setAudioSource(MediaRecorder.AudioSource.MIC)
+                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                setOutputFile(file.absolutePath)
+                prepare()
+                start()
+            }
+            mediaRecorder = recorder
+            audioFile = file
+            isRecordingAudio = true
+        }
+    }
 
     LaunchedEffect(group.id) {
         chatViewModel.loadCustomGroupMessages(group.id)
@@ -141,51 +233,124 @@ fun CustomGroupChatScreen(
                         .padding(horizontal = 10.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    OutlinedTextField(
-                        value = text,
-                        onValueChange = { text = it },
-                        modifier = Modifier.weight(1f),
-                        placeholder = { Text("اكتب رسالة للجروب...") },
-                        shape = RoundedCornerShape(24.dp),
-                        maxLines = 4,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                            unfocusedBorderColor = Color.Transparent,
-                            focusedBorderColor = Color.Transparent
+                    IconButton(onClick = { showAttachmentMenu = true }) {
+                        Icon(Icons.Default.AttachFile, contentDescription = "إرفاق")
+                    }
+                    if (isRecordingAudio) {
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(24.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Mic, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                            Spacer(Modifier.width(8.dp))
+                            Text("بيسجّل صوت...", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    } else {
+                        OutlinedTextField(
+                            value = text,
+                            onValueChange = { text = it },
+                            modifier = Modifier.weight(1f),
+                            placeholder = { Text("اكتب رسالة للجروب...") },
+                            shape = RoundedCornerShape(24.dp),
+                            maxLines = 4,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                unfocusedBorderColor = Color.Transparent,
+                                focusedBorderColor = Color.Transparent
+                            )
                         )
-                    )
+                    }
                     Spacer(Modifier.width(8.dp))
                     val canSend = text.isNotBlank()
-                    IconButton(
-                        onClick = {
-                            val currentlyEditing = editingMessage
-                            if (currentlyEditing != null) {
-                                chatViewModel.editCustomGroupMessage(group.id, currentlyEditing.id, text)
-                                editingMessage = null
-                                text = ""
-                            } else {
-                                chatViewModel.sendCustomGroupMessage(context, group.id, myUid, myName, text)
-                                text = ""
-                            }
-                            chatViewModel.setCustomGroupTyping(group.id, myUid, myName, false)
-                        },
-                        enabled = canSend,
-                        modifier = Modifier
-                            .size(46.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (canSend) ChatAppSentBubbleGradient
-                                else Brush.linearGradient(
+                    if (isRecordingAudio) {
+                        // زرار إيقاف التسجيل وإرسال الصوت
+                        IconButton(
+                            onClick = {
+                                try {
+                                    mediaRecorder?.stop()
+                                    mediaRecorder?.release()
+                                } catch (e: Exception) { /* تجاهل لو التسجيل كان قصير جدًا */ }
+                                mediaRecorder = null
+                                isRecordingAudio = false
+                                val file = audioFile
+                                if (file != null && file.exists() && file.length() > 0) {
+                                    uploadAndSend(file.readBytes(), file.name, "audio/mp4", "audio")
+                                }
+                                audioFile = null
+                            },
+                            modifier = Modifier
+                                .size(46.dp)
+                                .clip(CircleShape)
+                                .background(ChatAppSentBubbleGradient)
+                        ) {
+                            Icon(Icons.Default.Stop, contentDescription = "إيقاف وإرسال", tint = Color.White)
+                        }
+                    } else if (!canSend) {
+                        // زرار الميكروفون لما مفيش نص متكتوب
+                        IconButton(
+                            onClick = {
+                                if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                                    val file = File(context.cacheDir, "voice_${System.currentTimeMillis()}.m4a")
+                                    val recorder = MediaRecorder().apply {
+                                        setAudioSource(MediaRecorder.AudioSource.MIC)
+                                        setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                                        setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                                        setOutputFile(file.absolutePath)
+                                        prepare()
+                                        start()
+                                    }
+                                    mediaRecorder = recorder
+                                    audioFile = file
+                                    isRecordingAudio = true
+                                } else {
+                                    audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                }
+                            },
+                            modifier = Modifier
+                                .size(46.dp)
+                                .clip(CircleShape)
+                                .background(Brush.linearGradient(
                                     listOf(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.surfaceVariant)
+                                ))
+                        ) {
+                            Icon(Icons.Default.Mic, contentDescription = "تسجيل صوت", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    } else {
+                        IconButton(
+                            onClick = {
+                                val currentlyEditing = editingMessage
+                                if (currentlyEditing != null) {
+                                    chatViewModel.editCustomGroupMessage(group.id, currentlyEditing.id, text)
+                                    editingMessage = null
+                                    text = ""
+                                } else {
+                                    chatViewModel.sendCustomGroupMessage(context, group.id, myUid, myName, text)
+                                    text = ""
+                                }
+                                chatViewModel.setCustomGroupTyping(group.id, myUid, myName, false)
+                            },
+                            enabled = canSend,
+                            modifier = Modifier
+                                .size(46.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (canSend) ChatAppSentBubbleGradient
+                                    else Brush.linearGradient(
+                                        listOf(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.surfaceVariant)
+                                    )
                                 )
+                        ) {
+                            Icon(
+                                Icons.Default.Send,
+                                contentDescription = "إرسال",
+                                tint = if (canSend) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                    ) {
-                        Icon(
-                            Icons.Default.Send,
-                            contentDescription = "إرسال",
-                            tint = if (canSend) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        }
                     }
                 }
             }
@@ -261,6 +426,52 @@ fun CustomGroupChatScreen(
         DeleteMessageConfirmDialog(
             onDismiss = { deleteTarget = null },
             onConfirm = { chatViewModel.deleteCustomGroupMessage(group.id, currentDelete.id) }
+        )
+    }
+
+    // ---- قائمة الإرفاق ----
+    if (showAttachmentMenu) {
+        AttachmentMenu(
+            onDismiss = { showAttachmentMenu = false },
+            onSelect = { type ->
+                when (type) {
+                    AttachmentType.DOCUMENT -> pickDocumentLauncher.launch("*/*")
+                    AttachmentType.MEDIA -> pickMediaLauncher.launch(
+                        androidx.activity.result.PickVisualMediaRequest(
+                            ActivityResultContracts.PickVisualMedia.ImageAndVideo
+                        )
+                    )
+                    AttachmentType.AUDIO -> {
+                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                            val file = File(context.cacheDir, "voice_${System.currentTimeMillis()}.m4a")
+                            val recorder = MediaRecorder().apply {
+                                setAudioSource(MediaRecorder.AudioSource.MIC)
+                                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                                setOutputFile(file.absolutePath)
+                                prepare()
+                                start()
+                            }
+                            mediaRecorder = recorder
+                            audioFile = file
+                            isRecordingAudio = true
+                        } else {
+                            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    }
+                    else -> { /* مش مدعوم هنا (كاميرا/جهة اتصال/استطلاع/مناسبة/ملصق) */ }
+                }
+            }
+        )
+    }
+
+    val currentUploadError = uploadError
+    if (currentUploadError != null) {
+        AlertDialog(
+            onDismissRequest = { uploadError = null },
+            confirmButton = { TextButton(onClick = { uploadError = null }) { Text("حسنًا") } },
+            title = { Text("حصل خطأ") },
+            text = { Text(currentUploadError) }
         )
     }
 }
@@ -341,11 +552,47 @@ private fun CustomGroupMessageBubble(
                         color = if (isMine) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Text(
-                    text = message.text,
-                    color = if (isMine) Color.White else MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.bodyMedium
-                )
+                if (message.fileUrl.isNotBlank()) {
+                    when (message.fileType) {
+                        "image", "sticker" -> {
+                            AsyncImage(
+                                model = message.fileUrl,
+                                contentDescription = message.fileName,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .widthIn(max = 220.dp)
+                                    .heightIn(max = 220.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                            )
+                            if (message.fileType == "image") Spacer(Modifier.height(4.dp))
+                        }
+                        "video" -> {
+                            Text(
+                                text = "🎬 ${message.fileName.ifBlank { "فيديو" }}",
+                                color = if (isMine) Color.White else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        "audio" -> {
+                            Text(
+                                text = "🎤 مقطع صوتي",
+                                color = if (isMine) Color.White else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        "document" -> {
+                            Text(
+                                text = "📄 ${message.fileName.ifBlank { "مستند" }}",
+                                color = if (isMine) Color.White else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+                if (message.text.isNotBlank()) {
+                    Text(
+                        text = message.text,
+                        color = if (isMine) Color.White else MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
                 if (message.edited) {
                     Text(
                         text = "(معدلة)",
@@ -358,4 +605,3 @@ private fun CustomGroupMessageBubble(
         }
     }
 }
-

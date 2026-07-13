@@ -1,5 +1,17 @@
 package com.creatix.chatapp.ui.screens
 
+import android.Manifest
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.media.MediaRecorder
+import android.net.Uri
+import android.provider.ContactsContract
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
@@ -21,9 +33,12 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Reply
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -36,6 +51,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.AnnotatedString
@@ -55,6 +71,9 @@ import com.creatix.chatapp.viewmodel.AuthViewModel
 import com.creatix.chatapp.viewmodel.ChatViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.util.Calendar
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
@@ -84,6 +103,146 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current
+
+    // ---- حالة قائمة الإرفاق والحوارات المرتبطة بيها ----
+    var showAttachmentMenu by remember { mutableStateOf(false) }
+    var showPollDialog by remember { mutableStateOf(false) }
+    var showEventDialog by remember { mutableStateOf(false) }
+    var isRecordingAudio by remember { mutableStateOf(false) }
+    var uploadError by remember { mutableStateOf<String?>(null) }
+    var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
+    var audioFile by remember { mutableStateOf<File?>(null) }
+
+    // بيرفع الملف على Cloudflare وبيبعت الرسالة، وبيظهر رسالة خطأ لو فشل
+    fun uploadAndSend(bytes: ByteArray, fileName: String, mimeType: String, fileType: String) {
+        coroutineScope.launch {
+            try {
+                val url = chatViewModel.uploadFile(bytes, fileName, mimeType)
+                chatViewModel.sendMessage(
+                    context = context,
+                    senderId = myUid,
+                    receiverId = otherUser.uid,
+                    text = "",
+                    fileUrl = url,
+                    fileName = fileName,
+                    fileType = fileType
+                )
+            } catch (e: Exception) {
+                uploadError = e.message ?: "فشل رفع الملف"
+            }
+        }
+    }
+
+    // لواتشر اختيار مستند
+    val pickDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri ?: return@rememberLauncherForActivityResult
+        coroutineScope.launch {
+            val bytes = context.contentResolver.openInputStream(uri)?.readBytes()
+            if (bytes == null) { uploadError = "تعذر قراءة الملف"; return@launch }
+            var name = "document"
+            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (idx >= 0 && cursor.moveToFirst()) name = cursor.getString(idx) ?: name
+            }
+            val mime = context.contentResolver.getType(uri) ?: "application/octet-stream"
+            uploadAndSend(bytes, name, mime, "document")
+        }
+    }
+
+    // لواتشر اختيار صورة أو فيديو من المعرض
+    val pickMediaLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        uri ?: return@rememberLauncherForActivityResult
+        coroutineScope.launch {
+            val bytes = context.contentResolver.openInputStream(uri)?.readBytes()
+            if (bytes == null) { uploadError = "تعذر قراءة الملف"; return@launch }
+            val mime = context.contentResolver.getType(uri) ?: "image/jpeg"
+            val kind = if (mime.startsWith("video")) "video" else "image"
+            uploadAndSend(bytes, "$kind.${mime.substringAfterLast('/')}", mime, kind)
+        }
+    }
+
+    // لواتشر اختيار ملصق (صورة PNG)
+    val pickStickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri ?: return@rememberLauncherForActivityResult
+        coroutineScope.launch {
+            val bytes = context.contentResolver.openInputStream(uri)?.readBytes()
+            if (bytes == null) { uploadError = "تعذر قراءة الملصق"; return@launch }
+            uploadAndSend(bytes, "sticker.png", "image/png", "sticker")
+        }
+    }
+
+    // لواتشر الكاميرا (بيرجع Bitmap مباشرة، مش محتاج FileProvider)
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bitmap: Bitmap? ->
+        bitmap ?: return@rememberLauncherForActivityResult
+        val stream = ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 85, stream)
+        uploadAndSend(stream.toByteArray(), "camera.jpg", "image/jpeg", "image")
+    }
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted -> if (granted) cameraLauncher.launch(null) }
+
+    // لواتشر تسجيل الصوت
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            val file = File(context.cacheDir, "voice_${System.currentTimeMillis()}.m4a")
+            val recorder = MediaRecorder().apply {
+                setAudioSource(MediaRecorder.AudioSource.MIC)
+                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                setOutputFile(file.absolutePath)
+                prepare()
+                start()
+            }
+            mediaRecorder = recorder
+            audioFile = file
+            isRecordingAudio = true
+        }
+    }
+
+    // لواتشر اختيار جهة اتصال
+    var pickContactLauncherRef by remember { mutableStateOf<androidx.activity.result.ActivityResultLauncher<Void?>?>(null) }
+    val contactPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted -> if (granted) pickContactLauncherRef?.launch(null) }
+    val pickContactLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickContact()
+    ) { uri: Uri? ->
+        uri ?: return@rememberLauncherForActivityResult
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val nameIdx = cursor.getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME)
+                val hasPhoneIdx = cursor.getColumnIndex(ContactsContract.Contacts.HAS_PHONE_NUMBER)
+                val contactId = cursor.getString(cursor.getColumnIndex(ContactsContract.Contacts._ID))
+                val name = if (nameIdx >= 0) cursor.getString(nameIdx) else "جهة اتصال"
+                var phone = ""
+                if (hasPhoneIdx >= 0 && cursor.getInt(hasPhoneIdx) > 0) {
+                    context.contentResolver.query(
+                        ContactsContract.CommonDataKinds.Phone.CONTENT_URI, null,
+                        "${ContactsContract.CommonDataKinds.Phone.CONTACT_ID} = ?",
+                        arrayOf(contactId), null
+                    )?.use { phoneCursor ->
+                        if (phoneCursor.moveToFirst()) {
+                            val numIdx = phoneCursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                            if (numIdx >= 0) phone = phoneCursor.getString(numIdx) ?: ""
+                        }
+                    }
+                }
+                chatViewModel.sendContactMessage(context, myUid, otherUid = otherUser.uid, contactName = name, contactPhone = phone)
+            }
+        }
+    }
+    pickContactLauncherRef = pickContactLauncher
 
     LaunchedEffect(chatId) {
         chatViewModel.loadMessages(chatId, myUid, otherUser.uid)
@@ -268,22 +427,94 @@ fun ChatScreen(
                         .padding(horizontal = 10.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    OutlinedTextField(
-                        value = text,
-                        onValueChange = { text = it },
-                        modifier = Modifier.weight(1f),
-                        placeholder = { Text("اكتب رسالة...") },
-                        shape = RoundedCornerShape(24.dp),
-                        maxLines = 4,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                            unfocusedBorderColor = Color.Transparent,
-                            focusedBorderColor = Color.Transparent
+                    IconButton(onClick = { showAttachmentMenu = true }) {
+                        Icon(Icons.Default.AttachFile, contentDescription = "إرفاق")
+                    }
+                    if (isRecordingAudio) {
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(24.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Mic, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                            Spacer(Modifier.width(8.dp))
+                            Text("بيسجّل صوت...", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    } else {
+                        OutlinedTextField(
+                            value = text,
+                            onValueChange = { text = it },
+                            modifier = Modifier.weight(1f),
+                            placeholder = { Text("اكتب رسالة...") },
+                            shape = RoundedCornerShape(24.dp),
+                            maxLines = 4,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                unfocusedBorderColor = Color.Transparent,
+                                focusedBorderColor = Color.Transparent
+                            )
                         )
-                    )
+                    }
                     Spacer(Modifier.width(8.dp))
                     val canSend = text.isNotBlank()
+                    if (isRecordingAudio) {
+                        // زرار إيقاف التسجيل وإرسال الصوت
+                        IconButton(
+                            onClick = {
+                                try {
+                                    mediaRecorder?.stop()
+                                    mediaRecorder?.release()
+                                } catch (e: Exception) { /* تجاهل لو التسجيل كان قصير جدًا */ }
+                                mediaRecorder = null
+                                isRecordingAudio = false
+                                val file = audioFile
+                                if (file != null && file.exists() && file.length() > 0) {
+                                    uploadAndSend(file.readBytes(), file.name, "audio/mp4", "audio")
+                                }
+                                audioFile = null
+                            },
+                            modifier = Modifier
+                                .size(46.dp)
+                                .clip(CircleShape)
+                                .background(ChatAppSentBubbleGradient)
+                        ) {
+                            Icon(Icons.Default.Stop, contentDescription = "إيقاف وإرسال", tint = Color.White)
+                        }
+                    } else if (!canSend) {
+                        // زرار الميكروفون لما مفيش نص متكتوب
+                        IconButton(
+                            onClick = {
+                                if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                                    val file = File(context.cacheDir, "voice_${System.currentTimeMillis()}.m4a")
+                                    val recorder = MediaRecorder().apply {
+                                        setAudioSource(MediaRecorder.AudioSource.MIC)
+                                        setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                                        setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                                        setOutputFile(file.absolutePath)
+                                        prepare()
+                                        start()
+                                    }
+                                    mediaRecorder = recorder
+                                    audioFile = file
+                                    isRecordingAudio = true
+                                } else {
+                                    audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                }
+                            },
+                            modifier = Modifier
+                                .size(46.dp)
+                                .clip(CircleShape)
+                                .background(Brush.linearGradient(
+                                    listOf(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.surfaceVariant)
+                                ))
+                        ) {
+                            Icon(Icons.Default.Mic, contentDescription = "تسجيل صوت", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    } else {
                     IconButton(
                         onClick = {
                             val currentlyEditing = editingMessage
@@ -323,6 +554,7 @@ fun ChatScreen(
                             contentDescription = "إرسال",
                             tint = if (canSend) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
                     }
                 }
             }
@@ -403,6 +635,153 @@ fun ChatScreen(
             onConfirm = { chatViewModel.deleteMessage(chatId, currentDelete.id) }
         )
     }
+
+    // ---- قائمة الإرفاق ----
+    if (showAttachmentMenu) {
+        AttachmentMenu(
+            onDismiss = { showAttachmentMenu = false },
+            onSelect = { type ->
+                when (type) {
+                    AttachmentType.DOCUMENT -> pickDocumentLauncher.launch("*/*")
+                    AttachmentType.MEDIA -> pickMediaLauncher.launch(
+                        androidx.activity.result.PickVisualMediaRequest(
+                            ActivityResultContracts.PickVisualMedia.ImageAndVideo
+                        )
+                    )
+                    AttachmentType.CAMERA -> {
+                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                            cameraLauncher.launch(null)
+                        } else {
+                            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                        }
+                    }
+                    AttachmentType.AUDIO -> {
+                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                            val file = File(context.cacheDir, "voice_${System.currentTimeMillis()}.m4a")
+                            val recorder = MediaRecorder().apply {
+                                setAudioSource(MediaRecorder.AudioSource.MIC)
+                                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                                setOutputFile(file.absolutePath)
+                                prepare()
+                                start()
+                            }
+                            mediaRecorder = recorder
+                            audioFile = file
+                            isRecordingAudio = true
+                        } else {
+                            audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    }
+                    AttachmentType.CONTACT -> {
+                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) {
+                            pickContactLauncher.launch(null)
+                        } else {
+                            contactPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
+                        }
+                    }
+                    AttachmentType.POLL -> showPollDialog = true
+                    AttachmentType.EVENT -> showEventDialog = true
+                    AttachmentType.STICKER -> pickStickerLauncher.launch("image/png")
+                }
+            }
+        )
+    }
+
+    if (showPollDialog) {
+        PollCreationDialog(
+            onDismiss = { showPollDialog = false },
+            onCreate = { question, options ->
+                chatViewModel.sendPollMessage(context, myUid, otherUser.uid, question, options)
+                showPollDialog = false
+            }
+        )
+    }
+
+    if (showEventDialog) {
+        val calendar = remember { Calendar.getInstance() }
+        LaunchedEffect(showEventDialog) {
+            DatePickerDialog(
+                context,
+                { _, year, month, day ->
+                    calendar.set(year, month, day)
+                    TimePickerDialog(
+                        context,
+                        { _, hour, minute ->
+                            calendar.set(Calendar.HOUR_OF_DAY, hour)
+                            calendar.set(Calendar.MINUTE, minute)
+                            chatViewModel.sendEventMessage(
+                                context, myUid, otherUser.uid,
+                                eventTitle = "مناسبة",
+                                eventTimestamp = calendar.timeInMillis
+                            )
+                            showEventDialog = false
+                        },
+                        calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), true
+                    ).apply { setOnCancelListener { showEventDialog = false } }.show()
+                },
+                calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)
+            ).apply { setOnCancelListener { showEventDialog = false } }.show()
+        }
+    }
+
+    val currentUploadError = uploadError
+    if (currentUploadError != null) {
+        AlertDialog(
+            onDismissRequest = { uploadError = null },
+            confirmButton = { TextButton(onClick = { uploadError = null }) { Text("حسنًا") } },
+            title = { Text("حصل خطأ") },
+            text = { Text(currentUploadError) }
+        )
+    }
+}
+
+/** حوار بسيط لإنشاء استطلاع رأي: سؤال + 2 لحد 4 خيارات */
+@Composable
+private fun PollCreationDialog(
+    onDismiss: () -> Unit,
+    onCreate: (question: String, options: List<String>) -> Unit
+) {
+    var question by remember { mutableStateOf("") }
+    val options = remember { mutableStateListOf("", "") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("استطلاع رأي") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = question,
+                    onValueChange = { question = it },
+                    label = { Text("السؤال") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(8.dp))
+                options.forEachIndexed { index, opt ->
+                    OutlinedTextField(
+                        value = opt,
+                        onValueChange = { options[index] = it },
+                        label = { Text("خيار ${index + 1}") },
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                    )
+                }
+                if (options.size < 4) {
+                    TextButton(onClick = { options.add("") }) { Text("+ إضافة خيار") }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val cleanOptions = options.map { it.trim() }.filter { it.isNotBlank() }
+                    if (question.isNotBlank() && cleanOptions.size >= 2) {
+                        onCreate(question.trim(), cleanOptions)
+                    }
+                }
+            ) { Text("إنشاء") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("إلغاء") } }
+    )
 }
 
 /** لفافة بتضيف خاصية "اسحب لليمين عشان ترد" فوق أي رسالة */
@@ -574,11 +953,75 @@ private fun MessageBubble(
                     }
                     Spacer(Modifier.height(4.dp))
                 }
-                Text(
-                    text = message.text,
-                    color = if (isMine) Color.White else MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.bodyMedium
-                )
+                if (message.fileUrl.isNotBlank()) {
+                    when (message.fileType) {
+                        "image", "sticker" -> {
+                            AsyncImage(
+                                model = message.fileUrl,
+                                contentDescription = message.fileName,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .widthIn(max = 220.dp)
+                                    .heightIn(max = 220.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                            )
+                            if (message.fileType == "image") Spacer(Modifier.height(4.dp))
+                        }
+                        "video" -> {
+                            Text(
+                                text = "🎬 ${message.fileName.ifBlank { "فيديو" }}",
+                                color = if (isMine) Color.White else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        "audio" -> {
+                            Text(
+                                text = "🎤 مقطع صوتي",
+                                color = if (isMine) Color.White else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        "document" -> {
+                            Text(
+                                text = "📄 ${message.fileName.ifBlank { "مستند" }}",
+                                color = if (isMine) Color.White else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+                if (message.contactName.isNotBlank()) {
+                    Text(
+                        text = "👤 ${message.contactName}${if (message.contactPhone.isNotBlank()) " - ${message.contactPhone}" else ""}",
+                        color = if (isMine) Color.White else MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                if (message.pollQuestion.isNotBlank()) {
+                    Column {
+                        Text(
+                            text = "📊 ${message.pollQuestion}",
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (isMine) Color.White else MaterialTheme.colorScheme.onSurface
+                        )
+                        message.pollOptions.forEach { opt ->
+                            Text(
+                                text = "• $opt",
+                                fontSize = 13.sp,
+                                color = if (isMine) Color.White.copy(alpha = 0.9f) else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                if (message.eventTitle.isNotBlank()) {
+                    Text(
+                        text = "📅 ${message.eventTitle}",
+                        color = if (isMine) Color.White else MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                if (message.text.isNotBlank()) {
+                    Text(
+                        text = message.text,
+                        color = if (isMine) Color.White else MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
                 if (message.edited) {
                     Text(
                         text = "(معدلة)",
@@ -599,4 +1042,3 @@ private fun MessageBubble(
         }
     }
 }
-

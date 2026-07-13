@@ -272,11 +272,22 @@ class ChatViewModel(
         senderId: String,
         senderName: String,
         text: String,
-        forwarded: Boolean = false
+        forwarded: Boolean = false,
+        fileUrl: String = "",
+        fileName: String = "",
+        fileType: String = "",
+        durationMs: Long = 0L
     ) {
-        if (text.isBlank()) return
+        if (text.isBlank() && fileUrl.isBlank()) return
         viewModelScope.launch {
-            repository.sendGroupMessage(context.applicationContext, senderId, senderName, text.trim(), forwarded = forwarded)
+            repository.sendGroupMessage(
+                context.applicationContext, senderId, senderName, text.trim(),
+                forwarded = forwarded,
+                fileUrl = fileUrl,
+                fileName = fileName,
+                fileType = fileType,
+                durationMs = durationMs
+            )
         }
     }
 
@@ -417,11 +428,22 @@ class ChatViewModel(
         senderId: String,
         senderName: String,
         text: String,
-        forwarded: Boolean = false
+        forwarded: Boolean = false,
+        fileUrl: String = "",
+        fileName: String = "",
+        fileType: String = "",
+        durationMs: Long = 0L
     ) {
-        if (text.isBlank()) return
+        if (text.isBlank() && fileUrl.isBlank()) return
         viewModelScope.launch {
-            repository.sendCustomGroupMessage(context.applicationContext, groupId, senderId, senderName, text.trim(), forwarded = forwarded)
+            repository.sendCustomGroupMessage(
+                context.applicationContext, groupId, senderId, senderName, text.trim(),
+                forwarded = forwarded,
+                fileUrl = fileUrl,
+                fileName = fileName,
+                fileType = fileType,
+                durationMs = durationMs
+            )
         }
     }
 

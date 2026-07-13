@@ -420,10 +420,23 @@ class ChatRepository {
         senderId: String,
         senderName: String,
         text: String,
-        forwarded: Boolean = false
+        forwarded: Boolean = false,
+        fileUrl: String = "",
+        fileName: String = "",
+        fileType: String = "",
+        durationMs: Long = 0L
     ) {
         val groupRef = db.collection("groups").document(GLOBAL_GROUP_ID)
-        groupRef.set(mapOf("lastMessage" to text, "lastTimestamp" to System.currentTimeMillis()), SetOptions.merge()).await()
+        val previewText = when {
+            text.isNotBlank() -> text
+            fileType == "image" -> "صورة"
+            fileType == "video" -> "فيديو"
+            fileType == "audio" -> "مقطع صوتي"
+            fileType == "document" -> "مستند"
+            fileType == "sticker" -> "ملصق"
+            else -> text
+        }
+        groupRef.set(mapOf("lastMessage" to previewText, "lastTimestamp" to System.currentTimeMillis()), SetOptions.merge()).await()
 
         val docRef = groupRef.collection("messages").document()
         val message = GroupMessage(
@@ -431,12 +444,16 @@ class ChatRepository {
             senderId = senderId,
             senderName = senderName,
             text = text,
-            forwarded = forwarded
+            forwarded = forwarded,
+            fileUrl = fileUrl,
+            fileName = fileName,
+            fileType = fileType,
+            durationMs = durationMs
         )
         docRef.set(message).await()
 
         // بعد ما الرسالة اتسجلت، ابعت إشعار push لكل أعضاء الجروب (كل المستخدمين ما عدا اللي بعت)
-        notifyGroupMembers(context, senderId, senderName, text)
+        notifyGroupMembers(context, senderId, senderName, previewText)
     }
 
     /** تعديل نص رسالة في الجروب العام */
@@ -560,11 +577,24 @@ class ChatRepository {
         senderId: String,
         senderName: String,
         text: String,
-        forwarded: Boolean = false
+        forwarded: Boolean = false,
+        fileUrl: String = "",
+        fileName: String = "",
+        fileType: String = "",
+        durationMs: Long = 0L
     ) {
         val groupRef = db.collection("custom_groups").document(groupId)
+        val previewText = when {
+            text.isNotBlank() -> text
+            fileType == "image" -> "صورة"
+            fileType == "video" -> "فيديو"
+            fileType == "audio" -> "مقطع صوتي"
+            fileType == "document" -> "مستند"
+            fileType == "sticker" -> "ملصق"
+            else -> text
+        }
         groupRef.set(
-            mapOf("lastMessage" to text, "lastTimestamp" to System.currentTimeMillis()),
+            mapOf("lastMessage" to previewText, "lastTimestamp" to System.currentTimeMillis()),
             SetOptions.merge()
         ).await()
 
@@ -574,11 +604,15 @@ class ChatRepository {
             senderId = senderId,
             senderName = senderName,
             text = text,
-            forwarded = forwarded
+            forwarded = forwarded,
+            fileUrl = fileUrl,
+            fileName = fileName,
+            fileType = fileType,
+            durationMs = durationMs
         )
         docRef.set(message).await()
 
-        notifyCustomGroupMembers(context, groupId, senderId, senderName, text)
+        notifyCustomGroupMembers(context, groupId, senderId, senderName, previewText)
     }
 
     /** تعديل نص رسالة في جروب مخصص */
@@ -696,3 +730,4 @@ class ChatRepository {
             .await()
     }
 }
+

@@ -9,10 +9,12 @@ import com.creatix.chatapp.data.GroupMessage
 import com.creatix.chatapp.data.GLOBAL_GROUP_ID
 import com.creatix.chatapp.data.ChatGroup
 import com.creatix.chatapp.services.FcmPushSender
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.async
@@ -20,10 +22,54 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
 
 class ChatRepository {
 
     private val db = FirebaseFirestore.getInstance()
+
+    // ---------------------------------------------------------------
+    // رفع الملفات على Cloudflare (يستخدمها كل أنواع المرفقات: مستند، صورة، فيديو، صوت، ملصق)
+    // ---------------------------------------------------------------
+
+    private val uploadApiBase = "https://chatapp-upload-api.amrezo134.workers.dev"
+    private val httpClient = OkHttpClient()
+    private val maxFileSizeBytes = 20 * 1024 * 1024L // 20 ميجا
+
+    /** بيرفع الملف على الـ Worker وبيرجع رابطه العام. بيرمي Exception لو فشل الرفع أو الحجم أكبر من 20 ميجا. */
+    suspend fun uploadFileToCloudflare(
+        bytes: ByteArray,
+        fileName: String,
+        mimeType: String
+    ): String = withContext(Dispatchers.IO) {
+        if (bytes.size > maxFileSizeBytes) {
+            throw Exception("حجم الملف أكبر من 20 ميجا")
+        }
+
+        val idToken = FirebaseAuth.getInstance().currentUser
+            ?.getIdToken(false)?.await()?.token ?: ""
+
+        val requestBody = bytes.toRequestBody(mimeType.toMediaTypeOrNull())
+        val request = Request.Builder()
+            .url("$uploadApiBase/upload")
+            .addHeader("Authorization", "Bearer $idToken")
+            .addHeader("X-File-Name", fileName)
+            .addHeader("X-File-Type", mimeType)
+            .post(requestBody)
+            .build()
+
+        httpClient.newCall(request).execute().use { response ->
+            if (response.code == 413) throw Exception("حجم الملف أكبر من 20 ميجا")
+            if (!response.isSuccessful) throw Exception("فشل الرفع: ${response.code}")
+            val json = JSONObject(response.body!!.string())
+            json.getString("url")
+        }
+    }
 
     /** يجيب بيانات كل اليوزرز (لعمل شات جديد) */
     fun observeUsers(currentUid: String): Flow<List<ChatUser>> = callbackFlow {
@@ -91,7 +137,7 @@ class ChatRepository {
             e.printStackTrace()
         }
     }
-    /** إرسال رسالة (لازم مستند الشات يتعمل الأول عشان قواعد الأمان) */
+    /** إرسال رسالة (لازم مستند الشات يتعمل الأول عشان قواعد الأمان) - بتدعم النص والمرفقات كلها */
     suspend fun sendMessage(
         context: Context,
         senderId: String,
@@ -99,16 +145,39 @@ class ChatRepository {
         text: String,
         replyTo: Message? = null,
         replyToSenderName: String = "",
-        forwarded: Boolean = false
+        forwarded: Boolean = false,
+        fileUrl: String = "",
+        fileName: String = "",
+        fileType: String = "",
+        durationMs: Long = 0L,
+        contactName: String = "",
+        contactPhone: String = "",
+        pollQuestion: String = "",
+        pollOptions: List<String> = emptyList(),
+        eventTitle: String = "",
+        eventTimestamp: Long = 0L
     ) {
         val chatId = chatIdFor(senderId, receiverId)
         val chatRef = db.collection("chats").document(chatId)
         val messageTimestamp = System.currentTimeMillis()
 
+        val previewText = when {
+            text.isNotBlank() -> text
+            fileType == "image" -> "صورة"
+            fileType == "video" -> "فيديو"
+            fileType == "audio" -> "مقطع صوتي"
+            fileType == "document" -> "مستند"
+            fileType == "sticker" -> "ملصق"
+            contactName.isNotBlank() -> "جهة اتصال: $contactName"
+            pollQuestion.isNotBlank() -> "استطلاع رأي: $pollQuestion"
+            eventTitle.isNotBlank() -> "مناسبة: $eventTitle"
+            else -> text
+        }
+
         chatRef.set(
             mapOf(
                 "participants" to listOf(senderId, receiverId),
-                "lastMessage" to text,
+                "lastMessage" to previewText,
                 "lastTimestamp" to messageTimestamp
             ),
             SetOptions.merge()
@@ -121,6 +190,16 @@ class ChatRepository {
             receiverId = receiverId,
             text = text,
             timestamp = messageTimestamp,
+            fileUrl = fileUrl,
+            fileName = fileName,
+            fileType = fileType,
+            durationMs = durationMs,
+            contactName = contactName,
+            contactPhone = contactPhone,
+            pollQuestion = pollQuestion,
+            pollOptions = pollOptions,
+            eventTitle = eventTitle,
+            eventTimestamp = eventTimestamp,
             replyToId = replyTo?.id ?: "",
             replyToText = replyTo?.let {
                 it.text.ifBlank {
@@ -137,7 +216,7 @@ class ChatRepository {
         docRef.set(message).await()
 
         // بعد ما الرسالة اتسجلت، ابعت إشعار push مباشر للمستقبل (بدون سيرفر)
-        notifyReceiver(context, senderId, receiverId, text)
+        notifyReceiver(context, senderId, receiverId, previewText)
     }
 
     /** تعديل نص رسالة في شات خاص (بيستخدمها صاحب الرسالة بس من الـ UI) */

@@ -1,0 +1,7 @@
+name = "chatapp-upload-api"
+main = "src/index.js"
+compatibility_date = "2026-01-01"
+
+[[r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "chatapp-media"

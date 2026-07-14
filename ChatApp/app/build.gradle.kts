@@ -67,6 +67,10 @@ dependencies {
     // Coil
     implementation("io.coil-kt:coil-compose:2.6.0")
     implementation("com.google.guava:guava:33.2.1-android")
+
+    // Media3 (لتشغيل الفيديو جوه التطبيق)
+    implementation("androidx.media3:media3-exoplayer:1.4.1")
+    implementation("androidx.media3:media3-ui:1.4.1")
 }
 configurations.all {
     resolutionStrategy {

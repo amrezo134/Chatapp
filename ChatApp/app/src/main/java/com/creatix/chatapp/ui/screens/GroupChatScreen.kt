@@ -392,6 +392,7 @@ fun GroupChatScreen(
                     GroupMessageBubble(
                         message = message,
                         isMine = message.senderId == myUid,
+                        myUid = myUid,
                         onCopy = { clipboardManager.setText(AnnotatedString(message.text)) },
                         onForward = { forwardTarget = message },
                         onEdit = {
@@ -399,6 +400,7 @@ fun GroupChatScreen(
                             text = message.text
                         },
                         onDelete = { deleteTarget = message },
+                        onReact = { emoji -> chatViewModel.toggleGroupReaction(message, myUid, emoji) },
                         onOpenImage = { url -> viewingImageUrl = url },
                         onOpenVideo = { url -> viewingVideoUrl = url },
                         onOpenDocument = { url, name -> viewingDocument = url to name }
@@ -529,10 +531,12 @@ fun GroupChatScreen(
 private fun GroupMessageBubble(
     message: GroupMessage,
     isMine: Boolean,
+    myUid: String = "",
     onCopy: () -> Unit = {},
     onForward: () -> Unit = {},
     onEdit: () -> Unit = {},
     onDelete: () -> Unit = {},
+    onReact: (String) -> Unit = {},
     onOpenImage: (String) -> Unit = {},
     onOpenVideo: (String) -> Unit = {},
     onOpenDocument: (String, String) -> Unit = { _, _ -> }
@@ -545,9 +549,9 @@ private fun GroupMessageBubble(
         RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 4.dp, bottomEnd = 18.dp)
     }
 
-    Row(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+        horizontalAlignment = if (isMine) Alignment.End else Alignment.Start
     ) {
         Box(
             modifier = Modifier
@@ -568,7 +572,7 @@ private fun GroupMessageBubble(
                             "document" -> if (message.fileUrl.isNotBlank()) onOpenDocument(message.fileUrl, message.fileName)
                         }
                     },
-                    onLongClick = { menuExpanded = true }
+                    onLongClick = { if (!message.deleted) menuExpanded = true }
                 )
                 .padding(horizontal = 14.dp, vertical = 9.dp)
                 .widthIn(max = 260.dp)
@@ -581,7 +585,8 @@ private fun GroupMessageBubble(
                 onCopy = onCopy,
                 onForward = onForward,
                 onEdit = onEdit,
-                onDelete = onDelete
+                onDelete = onDelete,
+                onReact = onReact
             )
             if (message.deleted) {
                 Text(
@@ -656,6 +661,16 @@ private fun GroupMessageBubble(
                     )
                 }
             }
+        }
+        if (message.reactions.isNotEmpty()) {
+            ReactionsChipsRow(
+                reactions = message.reactions,
+                myUid = myUid,
+                onToggle = { emoji -> onReact(emoji) },
+                modifier = Modifier
+                    .offset(y = (-6).dp)
+                    .shadow(1.dp, RoundedCornerShape(12.dp))
+            )
         }
     }
 }

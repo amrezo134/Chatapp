@@ -243,6 +243,18 @@ class ChatViewModel(
         }
     }
 
+    /** بيحدد تفاعل إيموجي على رسالة، أو بيشيله لو نفس الإيموجي متحدد قبل كده */
+    fun toggleReaction(chatId: String, message: Message, myUid: String, emoji: String) {
+        viewModelScope.launch {
+            try {
+                val newEmoji = if (message.reactions[myUid] == emoji) null else emoji
+                repository.setMessageReaction(chatId, message.id, myUid, newEmoji)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
     fun observeTyping(chatId: String, otherUid: String) {
         viewModelScope.launch {
             try {
@@ -310,6 +322,18 @@ class ChatViewModel(
         viewModelScope.launch {
             try {
                 repository.deleteGroupMessage(messageId)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    /** بيحدد تفاعل إيموجي على رسالة في الجروب العام، أو بيشيله لو نفس الإيموجي متحدد قبل كده */
+    fun toggleGroupReaction(message: GroupMessage, myUid: String, emoji: String) {
+        viewModelScope.launch {
+            try {
+                val newEmoji = if (message.reactions[myUid] == emoji) null else emoji
+                repository.setGroupMessageReaction(message.id, myUid, newEmoji)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -466,6 +490,18 @@ class ChatViewModel(
         viewModelScope.launch {
             try {
                 repository.deleteCustomGroupMessage(groupId, messageId)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    /** بيحدد تفاعل إيموجي على رسالة في جروب مخصص، أو بيشيله لو نفس الإيموجي متحدد قبل كده */
+    fun toggleCustomGroupReaction(groupId: String, message: GroupMessage, myUid: String, emoji: String) {
+        viewModelScope.launch {
+            try {
+                val newEmoji = if (message.reactions[myUid] == emoji) null else emoji
+                repository.setCustomGroupMessageReaction(groupId, message.id, myUid, newEmoji)
             } catch (e: Exception) {
                 e.printStackTrace()
             }

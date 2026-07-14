@@ -46,8 +46,10 @@ import com.creatix.chatapp.ui.theme.ChatAppBrandGradient
 import com.creatix.chatapp.ui.theme.ChatAppSentBubbleGradient
 import com.creatix.chatapp.viewmodel.AuthViewModel
 import com.creatix.chatapp.viewmodel.ChatViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -80,11 +82,13 @@ fun GroupChatScreen(
     var showAttachmentMenu by remember { mutableStateOf(false) }
     var isRecordingAudio by remember { mutableStateOf(false) }
     var uploadError by remember { mutableStateOf<String?>(null) }
+    var uploadingCount by remember { mutableStateOf(0) }
     var mediaRecorder by remember { mutableStateOf<MediaRecorder?>(null) }
     var audioFile by remember { mutableStateOf<File?>(null) }
 
-    // بيرفع الملف على Cloudflare وبيبعت الرسالة للجروب العام، وبيظهر رسالة خطأ لو فشل
+    // بيرفع الملف على Cloudflare وبيبعت الرسالة للجروب العام، وبيظهر رسالة خطأ لو فشل (كل ملف كرسالة مستقلة)
     fun uploadAndSend(bytes: ByteArray, fileName: String, mimeType: String, fileType: String) {
+        uploadingCount++
         coroutineScope.launch {
             try {
                 val url = chatViewModel.uploadFile(bytes, fileName, mimeType)
@@ -96,39 +100,49 @@ fun GroupChatScreen(
                 )
             } catch (e: Exception) {
                 uploadError = e.message ?: "فشل رفع الملف"
+            } finally {
+                uploadingCount--
             }
         }
     }
 
-    // لواتشر اختيار مستند
+    suspend fun readAndUploadDocument(uri: Uri) {
+        val bytes = withContext(Dispatchers.IO) { context.contentResolver.openInputStream(uri)?.readBytes() }
+        if (bytes == null) { uploadError = "تعذر قراءة أحد الملفات"; return }
+        var name = "document"
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (idx >= 0 && cursor.moveToFirst()) name = cursor.getString(idx) ?: name
+        }
+        val mime = context.contentResolver.getType(uri) ?: "application/octet-stream"
+        uploadAndSend(bytes, name, mime, "document")
+    }
+
+    suspend fun readAndUploadMedia(uri: Uri) {
+        val bytes = withContext(Dispatchers.IO) { context.contentResolver.openInputStream(uri)?.readBytes() }
+        if (bytes == null) { uploadError = "تعذر قراءة أحد الملفات"; return }
+        val mime = context.contentResolver.getType(uri) ?: "image/jpeg"
+        val kind = if (mime.startsWith("video")) "video" else "image"
+        uploadAndSend(bytes, "$kind.${mime.substringAfterLast('/')}", mime, kind)
+    }
+
+    // لواتشر اختيار مستندات (بيدعم اختيار أكتر من ملف مرة واحدة)
     val pickDocumentLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        uri ?: return@rememberLauncherForActivityResult
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris: List<Uri> ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
         coroutineScope.launch {
-            val bytes = context.contentResolver.openInputStream(uri)?.readBytes()
-            if (bytes == null) { uploadError = "تعذر قراءة الملف"; return@launch }
-            var name = "document"
-            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-                val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (idx >= 0 && cursor.moveToFirst()) name = cursor.getString(idx) ?: name
-            }
-            val mime = context.contentResolver.getType(uri) ?: "application/octet-stream"
-            uploadAndSend(bytes, name, mime, "document")
+            uris.forEach { uri -> readAndUploadDocument(uri) }
         }
     }
 
-    // لواتشر اختيار صورة أو فيديو من المعرض
+    // لواتشر اختيار صور أو فيديوهات من المعرض (بيدعم اختيار أكتر من ملف مرة واحدة)
     val pickMediaLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri: Uri? ->
-        uri ?: return@rememberLauncherForActivityResult
+        contract = ActivityResultContracts.PickMultipleVisualMedia()
+    ) { uris: List<Uri> ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
         coroutineScope.launch {
-            val bytes = context.contentResolver.openInputStream(uri)?.readBytes()
-            if (bytes == null) { uploadError = "تعذر قراءة الملف"; return@launch }
-            val mime = context.contentResolver.getType(uri) ?: "image/jpeg"
-            val kind = if (mime.startsWith("video")) "video" else "image"
-            uploadAndSend(bytes, "$kind.${mime.substringAfterLast('/')}", mime, kind)
+            uris.forEach { uri -> readAndUploadMedia(uri) }
         }
     }
 
@@ -215,6 +229,23 @@ fun GroupChatScreen(
                         IconButton(onClick = { editingMessage = null; text = "" }) {
                             Icon(Icons.Default.Close, contentDescription = "إلغاء التعديل")
                         }
+                    }
+                }
+                if (uploadingCount > 0) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = "جاري رفع $uploadingCount ${if (uploadingCount == 1) "ملف" else "ملفات"}...",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
                 Row(
@@ -599,7 +630,7 @@ private fun GroupMessageBubble(
                             )
                         }
                         "audio" -> {
-                            AudioPlayerBubble(url = message.fileUrl, isMine = isMine)
+                            AudioPlayerBubble(url = message.fileUrl, isMine = isMine, fileName = message.fileName)
                         }
                         "document" -> {
                             Text(

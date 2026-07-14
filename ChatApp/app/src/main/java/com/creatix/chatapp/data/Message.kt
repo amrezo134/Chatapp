@@ -23,7 +23,8 @@ data class Message(
     val replyToSenderName: String = "",
     val edited: Boolean = false,
     val deleted: Boolean = false,
-    val forwarded: Boolean = false
+    val forwarded: Boolean = false,
+    val reactions: Map<String, String> = emptyMap() // userId -> emoji
 )
 
 fun chatIdFor(uidA: String, uidB: String): String {

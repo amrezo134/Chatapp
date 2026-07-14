@@ -24,7 +24,8 @@ data class GroupMessage(
     val replyToSenderName: String = "",
     val edited: Boolean = false,
     val deleted: Boolean = false,
-    val forwarded: Boolean = false
+    val forwarded: Boolean = false,
+    val reactions: Map<String, String> = emptyMap() // userId -> emoji
 )
 // كل الجروب العام بيستخدم مستند ثابت واحد بالـ id ده
 const val GLOBAL_GROUP_ID = "global_group"

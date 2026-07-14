@@ -72,6 +72,9 @@ fun CustomGroupChatScreen(
     var editingMessage by remember { mutableStateOf<GroupMessage?>(null) }
     var forwardTarget by remember { mutableStateOf<GroupMessage?>(null) }
     var deleteTarget by remember { mutableStateOf<GroupMessage?>(null) }
+    var viewingImageUrl by remember { mutableStateOf<String?>(null) }
+    var viewingVideoUrl by remember { mutableStateOf<String?>(null) }
+    var viewingDocument by remember { mutableStateOf<Pair<String, String>?>(null) }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current
@@ -372,7 +375,10 @@ fun CustomGroupChatScreen(
                             editingMessage = message
                             text = message.text
                         },
-                        onDelete = { deleteTarget = message }
+                        onDelete = { deleteTarget = message },
+                        onOpenImage = { url -> viewingImageUrl = url },
+                        onOpenVideo = { url -> viewingVideoUrl = url },
+                        onOpenDocument = { url, name -> viewingDocument = url to name }
                     )
                 }
             }
@@ -474,6 +480,23 @@ fun CustomGroupChatScreen(
             text = { Text(currentUploadError) }
         )
     }
+
+    val currentViewingImage = viewingImageUrl
+    if (currentViewingImage != null) {
+        ImageViewerDialog(url = currentViewingImage, onDismiss = { viewingImageUrl = null })
+    }
+    val currentViewingVideo = viewingVideoUrl
+    if (currentViewingVideo != null) {
+        VideoPlayerDialog(url = currentViewingVideo, onDismiss = { viewingVideoUrl = null })
+    }
+    val currentViewingDocument = viewingDocument
+    if (currentViewingDocument != null) {
+        DocumentViewerDialog(
+            url = currentViewingDocument.first,
+            fileName = currentViewingDocument.second,
+            onDismiss = { viewingDocument = null }
+        )
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -484,7 +507,10 @@ private fun CustomGroupMessageBubble(
     onCopy: () -> Unit = {},
     onForward: () -> Unit = {},
     onEdit: () -> Unit = {},
-    onDelete: () -> Unit = {}
+    onDelete: () -> Unit = {},
+    onOpenImage: (String) -> Unit = {},
+    onOpenVideo: (String) -> Unit = {},
+    onOpenDocument: (String, String) -> Unit = { _, _ -> }
 ) {
     var menuExpanded by remember(message.id) { mutableStateOf(false) }
 
@@ -510,7 +536,13 @@ private fun CustomGroupMessageBubble(
                 )
                 .combinedClickable(
                     enabled = !message.deleted,
-                    onClick = {},
+                    onClick = {
+                        when (message.fileType) {
+                            "image", "sticker" -> if (message.fileUrl.isNotBlank()) onOpenImage(message.fileUrl)
+                            "video" -> if (message.fileUrl.isNotBlank()) onOpenVideo(message.fileUrl)
+                            "document" -> if (message.fileUrl.isNotBlank()) onOpenDocument(message.fileUrl, message.fileName)
+                        }
+                    },
                     onLongClick = { menuExpanded = true }
                 )
                 .padding(horizontal = 14.dp, vertical = 9.dp)
@@ -568,19 +600,16 @@ private fun CustomGroupMessageBubble(
                         }
                         "video" -> {
                             Text(
-                                text = "🎬 ${message.fileName.ifBlank { "فيديو" }}",
+                                text = "🎬 ${message.fileName.ifBlank { "فيديو" }} (اضغط للتشغيل)",
                                 color = if (isMine) Color.White else MaterialTheme.colorScheme.onSurface
                             )
                         }
                         "audio" -> {
-                            Text(
-                                text = "🎤 مقطع صوتي",
-                                color = if (isMine) Color.White else MaterialTheme.colorScheme.onSurface
-                            )
+                            AudioPlayerBubble(url = message.fileUrl, isMine = isMine)
                         }
                         "document" -> {
                             Text(
-                                text = "📄 ${message.fileName.ifBlank { "مستند" }}",
+                                text = "📄 ${message.fileName.ifBlank { "مستند" }} (اضغط للفتح)",
                                 color = if (isMine) Color.White else MaterialTheme.colorScheme.onSurface
                             )
                         }

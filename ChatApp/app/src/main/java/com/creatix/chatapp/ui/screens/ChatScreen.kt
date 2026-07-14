@@ -615,6 +615,7 @@ fun ChatScreen(
                     SwipeToReplyBubble(
                         message = message,
                         isMine = message.senderId == myUid,
+                        myUid = myUid,
                         onReply = { replyingTo = it; editingMessage = null },
                         onReplyPreviewClick = { replyToId ->
                             val replyIndex = messages.indexOfFirst { it.id == replyToId }
@@ -630,6 +631,7 @@ fun ChatScreen(
                             text = message.text
                         },
                         onDelete = { deleteTarget = message },
+                        onReact = { emoji -> chatViewModel.toggleReaction(chatId, message, myUid, emoji) },
                         onOpenImage = { url -> viewingImageUrl = url },
                         onOpenVideo = { url -> viewingVideoUrl = url },
                         onOpenDocument = { url, name -> viewingDocument = url to name }
@@ -844,12 +846,14 @@ private fun PollCreationDialog(
 private fun SwipeToReplyBubble(
     message: Message,
     isMine: Boolean,
+    myUid: String,
     onReply: (Message) -> Unit,
     onReplyPreviewClick: (String) -> Unit,
     onCopy: () -> Unit,
     onForward: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onReact: (String) -> Unit,
     onOpenImage: (String) -> Unit = {},
     onOpenVideo: (String) -> Unit = {},
     onOpenDocument: (String, String) -> Unit = { _, _ -> }
@@ -903,11 +907,13 @@ private fun SwipeToReplyBubble(
             MessageBubble(
                 message = message,
                 isMine = isMine,
+                myUid = myUid,
                 onReplyPreviewClick = onReplyPreviewClick,
                 onCopy = onCopy,
                 onForward = onForward,
                 onEdit = onEdit,
                 onDelete = onDelete,
+                onReact = onReact,
                 onOpenImage = onOpenImage,
                 onOpenVideo = onOpenVideo,
                 onOpenDocument = onOpenDocument
@@ -921,11 +927,13 @@ private fun SwipeToReplyBubble(
 private fun MessageBubble(
     message: Message,
     isMine: Boolean,
+    myUid: String = "",
     onReplyPreviewClick: (String) -> Unit = {},
     onCopy: () -> Unit = {},
     onForward: () -> Unit = {},
     onEdit: () -> Unit = {},
     onDelete: () -> Unit = {},
+    onReact: (String) -> Unit = {},
     onOpenImage: (String) -> Unit = {},
     onOpenVideo: (String) -> Unit = {},
     onOpenDocument: (String, String) -> Unit = { _, _ -> }
@@ -938,9 +946,9 @@ private fun MessageBubble(
         RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 4.dp, bottomEnd = 18.dp)
     }
 
-    Row(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+        horizontalAlignment = if (isMine) Alignment.End else Alignment.Start
     ) {
         Box(
             modifier = Modifier
@@ -961,7 +969,7 @@ private fun MessageBubble(
                             "document" -> if (message.fileUrl.isNotBlank()) onOpenDocument(message.fileUrl, message.fileName)
                         }
                     },
-                    onLongClick = { menuExpanded = true }
+                    onLongClick = { if (!message.deleted) menuExpanded = true }
                 )
                 .padding(horizontal = 14.dp, vertical = 9.dp)
                 .widthIn(max = 260.dp)
@@ -974,7 +982,8 @@ private fun MessageBubble(
                 onCopy = onCopy,
                 onForward = onForward,
                 onEdit = onEdit,
-                onDelete = onDelete
+                onDelete = onDelete,
+                onReact = onReact
             )
             if (message.deleted) {
                 Text(
@@ -1106,6 +1115,16 @@ private fun MessageBubble(
                     )
                 }
             }
+        }
+        if (message.reactions.isNotEmpty()) {
+            ReactionsChipsRow(
+                reactions = message.reactions,
+                myUid = myUid,
+                onToggle = { emoji -> onReact(emoji) },
+                modifier = Modifier
+                    .offset(y = (-6).dp)
+                    .shadow(1.dp, RoundedCornerShape(12.dp))
+            )
         }
     }
 }

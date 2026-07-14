@@ -227,6 +227,16 @@ class ChatRepository {
             .await()
     }
 
+    /** تحديد/إزالة تفاعل إيموجي على رسالة في شات خاص (emoji = null بتشيل تفاعل المستخدم) */
+    suspend fun setMessageReaction(chatId: String, messageId: String, userId: String, emoji: String?) {
+        val ref = db.collection("chats").document(chatId).collection("messages").document(messageId)
+        if (emoji == null) {
+            ref.update("reactions.$userId", com.google.firebase.firestore.FieldValue.delete()).await()
+        } else {
+            ref.update("reactions.$userId", emoji).await()
+        }
+    }
+
     /** حذف رسالة في شات خاص (حذف عند الطرفين، بيسيب أثر "تم حذف هذه الرسالة") */
     suspend fun deleteMessage(chatId: String, messageId: String) {
         db.collection("chats").document(chatId)
@@ -464,6 +474,16 @@ class ChatRepository {
             .await()
     }
 
+    /** تحديد/إزالة تفاعل إيموجي على رسالة في الجروب العام */
+    suspend fun setGroupMessageReaction(messageId: String, userId: String, emoji: String?) {
+        val ref = db.collection("groups").document(GLOBAL_GROUP_ID).collection("messages").document(messageId)
+        if (emoji == null) {
+            ref.update("reactions.$userId", com.google.firebase.firestore.FieldValue.delete()).await()
+        } else {
+            ref.update("reactions.$userId", emoji).await()
+        }
+    }
+
     /** حذف رسالة في الجروب العام */
     suspend fun deleteGroupMessage(messageId: String) {
         db.collection("groups").document(GLOBAL_GROUP_ID)
@@ -621,6 +641,16 @@ class ChatRepository {
             .collection("messages").document(messageId)
             .update(mapOf("text" to newText, "edited" to true))
             .await()
+    }
+
+    /** تحديد/إزالة تفاعل إيموجي على رسالة في جروب مخصص */
+    suspend fun setCustomGroupMessageReaction(groupId: String, messageId: String, userId: String, emoji: String?) {
+        val ref = db.collection("custom_groups").document(groupId).collection("messages").document(messageId)
+        if (emoji == null) {
+            ref.update("reactions.$userId", com.google.firebase.firestore.FieldValue.delete()).await()
+        } else {
+            ref.update("reactions.$userId", emoji).await()
+        }
     }
 
     /** حذف رسالة في جروب مخصص */

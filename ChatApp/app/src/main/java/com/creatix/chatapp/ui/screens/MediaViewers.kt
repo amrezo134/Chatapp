@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
@@ -31,6 +32,8 @@ import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
+import com.creatix.chatapp.util.fileNameFromUrl
+import com.creatix.chatapp.util.rememberFileDownloader
 import kotlinx.coroutines.delay
 
 /**
@@ -41,6 +44,7 @@ fun ImageViewerDialog(url: String, onDismiss: () -> Unit) {
     var scale by remember { mutableStateOf(1f) }
     var offsetX by remember { mutableStateOf(0f) }
     var offsetY by remember { mutableStateOf(0f) }
+    val download = rememberFileDownloader()
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(
@@ -68,15 +72,28 @@ fun ImageViewerDialog(url: String, onDismiss: () -> Unit) {
                         translationY = offsetY
                     )
             )
-            IconButton(
-                onClick = onDismiss,
+            Row(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(12.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.5f))
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(Icons.Default.Close, contentDescription = "إغلاق", tint = Color.White)
+                IconButton(
+                    onClick = { download(url, fileNameFromUrl(url, "image.jpg")) },
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.5f))
+                ) {
+                    Icon(Icons.Default.Download, contentDescription = "تحميل", tint = Color.White)
+                }
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.5f))
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "إغلاق", tint = Color.White)
+                }
             }
         }
     }
@@ -88,6 +105,7 @@ fun ImageViewerDialog(url: String, onDismiss: () -> Unit) {
 @Composable
 fun VideoPlayerDialog(url: String, onDismiss: () -> Unit) {
     val context = LocalContext.current
+    val download = rememberFileDownloader()
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
             setMediaItem(MediaItem.fromUri(Uri.parse(url)))
@@ -109,15 +127,28 @@ fun VideoPlayerDialog(url: String, onDismiss: () -> Unit) {
                 },
                 modifier = Modifier.fillMaxSize()
             )
-            IconButton(
-                onClick = onDismiss,
+            Row(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(12.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.5f))
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(Icons.Default.Close, contentDescription = "إغلاق", tint = Color.White)
+                IconButton(
+                    onClick = { download(url, fileNameFromUrl(url, "video.mp4")) },
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.5f))
+                ) {
+                    Icon(Icons.Default.Download, contentDescription = "تحميل", tint = Color.White)
+                }
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.5f))
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "إغلاق", tint = Color.White)
+                }
             }
         }
     }
@@ -131,6 +162,7 @@ fun VideoPlayerDialog(url: String, onDismiss: () -> Unit) {
 fun DocumentViewerDialog(url: String, fileName: String, onDismiss: () -> Unit) {
     var isLoading by remember { mutableStateOf(true) }
     val viewerUrl = "https://docs.google.com/viewer?url=${Uri.encode(url)}&embedded=true"
+    val download = rememberFileDownloader()
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(modifier = Modifier.fillMaxSize().background(Color.White)) {
@@ -152,6 +184,9 @@ fun DocumentViewerDialog(url: String, fileName: String, onDismiss: () -> Unit) {
                         maxLines = 1,
                         modifier = Modifier.weight(1f)
                     )
+                    IconButton(onClick = { download(url, fileName.ifBlank { fileNameFromUrl(url, "document") }) }) {
+                        Icon(Icons.Default.Download, contentDescription = "تحميل", tint = Color.White)
+                    }
                 }
                 Box(modifier = Modifier.fillMaxSize()) {
                     AndroidView(
@@ -181,8 +216,9 @@ fun DocumentViewerDialog(url: String, fileName: String, onDismiss: () -> Unit) {
  * مشغل صوت مضمّن جوه فقاعة الرسالة (تشغيل/إيقاف + شريط تقدّم + الوقت).
  */
 @Composable
-fun AudioPlayerBubble(url: String, isMine: Boolean) {
+fun AudioPlayerBubble(url: String, isMine: Boolean, fileName: String = "") {
     val context = LocalContext.current
+    val download = rememberFileDownloader()
     var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
     var isPlaying by remember { mutableStateOf(false) }
     var isPrepared by remember { mutableStateOf(false) }
@@ -268,6 +304,12 @@ fun AudioPlayerBubble(url: String, isMine: Boolean) {
                 fontSize = 11.sp,
                 color = tint.copy(alpha = 0.85f)
             )
+        }
+        IconButton(
+            onClick = { download(url, fileName.ifBlank { fileNameFromUrl(url, "audio.m4a") }) },
+            modifier = Modifier.size(32.dp)
+        ) {
+            Icon(Icons.Default.Download, contentDescription = "تحميل", tint = tint, modifier = Modifier.size(18.dp))
         }
     }
 }

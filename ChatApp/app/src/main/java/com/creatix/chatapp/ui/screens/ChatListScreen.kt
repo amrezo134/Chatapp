@@ -367,14 +367,23 @@ private fun CustomGroupRow(group: ChatGroup, unreadCount: Int, onClick: () -> Un
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .size(52.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.secondaryContainer),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(Icons.Default.Groups, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+        if (group.photoUrl.isNotBlank()) {
+            AsyncImage(
+                model = group.photoUrl,
+                contentDescription = group.name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.size(52.dp).clip(CircleShape)
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(52.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.secondaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.Groups, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
+            }
         }
 
         Spacer(Modifier.width(14.dp))

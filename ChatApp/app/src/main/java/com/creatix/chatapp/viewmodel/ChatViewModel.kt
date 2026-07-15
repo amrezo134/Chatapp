@@ -600,6 +600,75 @@ class ChatViewModel(
             }
         }
     }
+
+    // ---------------------------------------------------------------
+    // إدارة الجروب (صفحة معلومات الجروب): الصورة، البايو، الأعضاء، المشرفين
+    // ---------------------------------------------------------------
+
+    private val _groupInfoError = MutableStateFlow<String?>(null)
+    val groupInfoError: StateFlow<String?> = _groupInfoError
+
+    fun clearGroupInfoError() {
+        _groupInfoError.value = null
+    }
+
+    /** بيرفع صورة جديدة للجروب ويحدّثها (مشرفين بس، الـ Firestore rules بترفض غير كده) */
+    fun updateGroupPhoto(groupId: String, bytes: ByteArray, fileName: String, mimeType: String) {
+        viewModelScope.launch {
+            try {
+                val url = repository.uploadFileToCloudflare(bytes, fileName, mimeType)
+                repository.updateCustomGroupPhoto(groupId, url)
+            } catch (e: Exception) {
+                _groupInfoError.value = e.message ?: "فشل تحديث صورة الجروب"
+            }
+        }
+    }
+
+    /** بيحدّث بايو الجروب (مشرفين بس) */
+    fun updateGroupBio(groupId: String, bio: String) {
+        viewModelScope.launch {
+            try {
+                repository.updateCustomGroupBio(groupId, bio.trim())
+            } catch (e: Exception) {
+                _groupInfoError.value = e.message ?: "فشل تحديث بايو الجروب"
+            }
+        }
+    }
+
+    /** بيضيف أعضاء جدد للجروب (مشرفين بس) */
+    fun addMembersToGroup(groupId: String, newMemberIds: List<String>) {
+        if (newMemberIds.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                repository.addMembersToCustomGroup(groupId, newMemberIds)
+            } catch (e: Exception) {
+                _groupInfoError.value = e.message ?: "فشل إضافة الأعضاء"
+            }
+        }
+    }
+
+    /** بيخلي عضو مشرف في الجروب (صاحب الجروب بس) */
+    fun promoteGroupMember(groupId: String, uid: String) {
+        viewModelScope.launch {
+            try {
+                repository.promoteCustomGroupMember(groupId, uid)
+            } catch (e: Exception) {
+                _groupInfoError.value = e.message ?: "فشل ترقية العضو"
+            }
+        }
+    }
+
+    /** بيحذف الجروب نهائيًا (صاحب الجروب بس)؛ بيرجع true لو نجح الحذف */
+    fun deleteGroup(groupId: String, onDeleted: () -> Unit) {
+        viewModelScope.launch {
+            try {
+                repository.deleteCustomGroup(groupId)
+                onDeleted()
+            } catch (e: Exception) {
+                _groupInfoError.value = e.message ?: "فشل حذف الجروب"
+            }
+        }
+    }
 }
 
 /** حالة عملية إنشاء جروب مخصص جديد */

@@ -8,9 +8,13 @@ import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -20,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Stop
@@ -53,13 +58,17 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun CustomGroupChatScreen(
     authViewModel: AuthViewModel,
     chatViewModel: ChatViewModel,
     group: ChatGroup,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenGroupInfo: () -> Unit = {},
+    onOpenGroupPhoto: () -> Unit = {},
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null
 ) {
     val myUid = authViewModel.currentUid ?: return
     val context = LocalContext.current
@@ -208,13 +217,26 @@ fun CustomGroupChatScreen(
             Box(modifier = Modifier.fillMaxWidth().background(ChatAppBrandGradient)) {
                 TopAppBar(
                     title = {
-                        Column {
-                            Text(group.name, color = Color.White, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                "${group.memberIds.size} عضو",
-                                fontSize = 12.sp,
-                                color = Color.White.copy(alpha = 0.8f)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable { onOpenGroupInfo() }
+                        ) {
+                            GroupAvatarWithInfoBadge(
+                                group = group,
+                                sharedTransitionScope = sharedTransitionScope,
+                                animatedVisibilityScope = animatedVisibilityScope,
+                                onOpenPhoto = onOpenGroupPhoto,
+                                onOpenInfo = onOpenGroupInfo
                             )
+                            Spacer(Modifier.width(10.dp))
+                            Column {
+                                Text(group.name, color = Color.White, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    "${group.memberIds.size} عضو",
+                                    fontSize = 12.sp,
+                                    color = Color.White.copy(alpha = 0.8f)
+                                )
+                            }
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
@@ -542,6 +564,81 @@ fun CustomGroupChatScreen(
             fileName = currentViewingDocument.second,
             onDismiss = { viewingDocument = null }
         )
+    }
+}
+
+/**
+ * صورة بروفايل الجروب في شريط العنوان: بتدوس عليها تتكبر (زي البروفايل العادي)،
+ * وفوقيها دايرة صغيرة فيها حرف i بتفتح شاشة معلومات الجروب.
+ */
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun GroupAvatarWithInfoBadge(
+    group: ChatGroup,
+    sharedTransitionScope: SharedTransitionScope?,
+    animatedVisibilityScope: AnimatedVisibilityScope?,
+    onOpenPhoto: () -> Unit,
+    onOpenInfo: () -> Unit
+) {
+    Box(modifier = Modifier.size(40.dp)) {
+        val avatarModifier = Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .align(Alignment.Center)
+
+        @Composable
+        fun AvatarImage(modifier: Modifier) {
+            if (group.photoUrl.isNotBlank()) {
+                AsyncImage(
+                    model = group.photoUrl,
+                    contentDescription = group.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = modifier.clickable { onOpenPhoto() }
+                )
+            } else {
+                Box(
+                    modifier = modifier.background(Color.White.copy(alpha = 0.25f)).clickable { onOpenInfo() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        (group.name.firstOrNull() ?: '#').toString(),
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                }
+            }
+        }
+
+        if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+            with(sharedTransitionScope) {
+                AvatarImage(
+                    avatarModifier.sharedElement(
+                        state = rememberSharedContentState(key = "group-photo-${group.id}"),
+                        animatedVisibilityScope = animatedVisibilityScope
+                    )
+                )
+            }
+        } else {
+            AvatarImage(avatarModifier)
+        }
+
+        Box(
+            modifier = Modifier
+                .size(16.dp)
+                .align(Alignment.TopEnd)
+                .clip(CircleShape)
+                .background(Color.White)
+                .clickable { onOpenInfo() },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Default.Info,
+                contentDescription = "معلومات الجروب",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(12.dp)
+            )
+        }
     }
 }
 

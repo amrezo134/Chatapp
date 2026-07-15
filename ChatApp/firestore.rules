@@ -13,11 +13,19 @@ service cloud.firestore {
         allow read, create: if request.auth != null;
         // صاحب الرسالة بس يقدر يعدّلها (نص + edited) أو يحذفها حذف ناعم (text/deleted/file*)
         allow update: if request.auth != null &&
-          request.auth.uid == resource.data.senderId &&
           (
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly(["text", "edited"]) ||
-            request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(["text", "deleted", "fileUrl", "fileName", "fileType"])
+            (request.auth.uid == resource.data.senderId &&
+              (
+                request.resource.data.diff(resource.data).affectedKeys().hasOnly(["text", "edited"]) ||
+                request.resource.data.diff(resource.data).affectedKeys()
+                  .hasOnly(["text", "deleted", "fileUrl", "fileName", "fileType"])
+              )
+            ) ||
+            // أي مستخدم مسجّل يقدر يحدّد/يشيل تفاعل الإيموجي بتاعه هو بس
+            (
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(["reactions"]) &&
+              request.resource.data.reactions.diff(resource.data.reactions).affectedKeys().hasOnly([request.auth.uid])
+            )
           );
         allow delete: if false;
       }
@@ -43,11 +51,20 @@ service cloud.firestore {
           request.auth.uid in get(/databases/$(database)/documents/custom_groups/$(groupId)).data.memberIds;
         // صاحب الرسالة بس يقدر يعدّلها أو يحذفها حذف ناعم
         allow update: if request.auth != null &&
-          request.auth.uid == resource.data.senderId &&
           (
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly(["text", "edited"]) ||
-            request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(["text", "deleted", "fileUrl", "fileName", "fileType"])
+            (request.auth.uid == resource.data.senderId &&
+              (
+                request.resource.data.diff(resource.data).affectedKeys().hasOnly(["text", "edited"]) ||
+                request.resource.data.diff(resource.data).affectedKeys()
+                  .hasOnly(["text", "deleted", "fileUrl", "fileName", "fileType"])
+              )
+            ) ||
+            // أي عضو في الجروب يقدر يحدّد/يشيل تفاعل الإيموجي بتاعه هو بس
+            (
+              request.auth.uid in get(/databases/$(database)/documents/custom_groups/$(groupId)).data.memberIds &&
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(["reactions"]) &&
+              request.resource.data.reactions.diff(resource.data.reactions).affectedKeys().hasOnly([request.auth.uid])
+            )
           );
         allow delete: if false;
       }
@@ -88,10 +105,15 @@ service cloud.firestore {
           // صاحب الرسالة بس يقدر يحذفها حذف ناعم
           (request.auth.uid == resource.data.senderId &&
             request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(["text", "deleted", "fileUrl", "fileName", "fileType"]))
+              .hasOnly(["text", "deleted", "fileUrl", "fileName", "fileType"])) ||
+          // أي من طرفي المحادثة يقدر يحدّد/يشيل تفاعل الإيموجي بتاعه هو بس
+          (
+            request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(["reactions"]) &&
+            request.resource.data.reactions.diff(resource.data.reactions).affectedKeys().hasOnly([request.auth.uid])
+          )
         );
       }
     }
   }
 }
-

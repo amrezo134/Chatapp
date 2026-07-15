@@ -152,7 +152,14 @@ fun ChatScreen(
             if (idx >= 0 && cursor.moveToFirst()) name = cursor.getString(idx) ?: name
         }
         val mime = context.contentResolver.getType(uri) ?: "application/octet-stream"
-        uploadAndSend(bytes, name, mime, "document")
+        // نحدد نوع المرفق الفعلي من الـ mime بدل ما نثبته "document" دايمًا
+        val fileType = when {
+            mime.startsWith("audio") -> "audio"
+            mime.startsWith("image") -> "image"
+            mime.startsWith("video") -> "video"
+            else -> "document"
+        }
+        uploadAndSend(bytes, name, mime, fileType)
     }
 
     suspend fun readAndUploadMedia(uri: Uri) {
@@ -1128,3 +1135,4 @@ private fun MessageBubble(
         }
     }
 }
+

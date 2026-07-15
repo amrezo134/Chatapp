@@ -63,6 +63,8 @@ fun CustomGroupChatScreen(
 ) {
     val myUid = authViewModel.currentUid ?: return
     val context = LocalContext.current
+    LaunchedEffect(myUid) { chatViewModel.loadQuickReactionEmojis(myUid) }
+    val quickEmojis by chatViewModel.quickReactionEmojis.collectAsState()
     val myName by chatViewModel.myDisplayName.collectAsState()
     LaunchedEffect(myUid) { chatViewModel.loadMyDisplayName(myUid) }
 
@@ -415,10 +417,14 @@ fun CustomGroupChatScreen(
                             text = message.text
                         },
                         onDelete = { deleteTarget = message },
-                        onReact = { emoji -> chatViewModel.toggleCustomGroupReaction(group.id, message, myUid, emoji) },
+                        onReact = { emoji ->
+                            chatViewModel.toggleCustomGroupReaction(group.id, message, myUid, emoji)
+                            chatViewModel.recordEmojiUsage(myUid, emoji)
+                        },
                         onOpenImage = { url -> viewingImageUrl = url },
                         onOpenVideo = { url -> viewingVideoUrl = url },
-                        onOpenDocument = { url, name -> viewingDocument = url to name }
+                        onOpenDocument = { url, name -> viewingDocument = url to name },
+                        quickEmojis = quickEmojis
                     )
                 }
             }
@@ -552,9 +558,11 @@ private fun CustomGroupMessageBubble(
     onReact: (String) -> Unit = {},
     onOpenImage: (String) -> Unit = {},
     onOpenVideo: (String) -> Unit = {},
-    onOpenDocument: (String, String) -> Unit = { _, _ -> }
+    onOpenDocument: (String, String) -> Unit = { _, _ -> },
+    quickEmojis: List<String> = QUICK_REACTION_EMOJIS
 ) {
     var menuExpanded by remember(message.id) { mutableStateOf(false) }
+    var showFullEmojiPicker by remember(message.id) { mutableStateOf(false) }
 
     val bubbleShape = if (isMine) {
         RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 18.dp, bottomEnd = 4.dp)
@@ -599,8 +607,16 @@ private fun CustomGroupMessageBubble(
                 onForward = onForward,
                 onEdit = onEdit,
                 onDelete = onDelete,
-                onReact = onReact
+                onReact = onReact,
+                onMoreReactions = { showFullEmojiPicker = true },
+                quickEmojis = quickEmojis
             )
+            if (showFullEmojiPicker) {
+                FullEmojiPickerDialog(
+                    onDismiss = { showFullEmojiPicker = false },
+                    onSelect = { emoji -> onReact(emoji) }
+                )
+            }
             if (message.deleted) {
                 Text(
                     text = "🚫 تم حذف هذه الرسالة",

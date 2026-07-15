@@ -600,7 +600,7 @@ class ChatRepository {
         awaitClose { listener.remove() }
     }
 
-    /** بيعمل جروب جديد، وبيحط صاحب الجروب نفسه ضمن الأعضاء تلقائيًا */
+    /** بيعمل جروب جديد، وبيحط صاحب الجروب نفسه ضمن الأعضاء والمشرفين تلقائيًا */
     suspend fun createCustomGroup(name: String, ownerId: String, memberIds: List<String>): String {
         val docRef = db.collection("custom_groups").document()
         val allMembers = (memberIds + ownerId).distinct()
@@ -609,11 +609,46 @@ class ChatRepository {
             name = name,
             ownerId = ownerId,
             memberIds = allMembers,
+            adminIds = listOf(ownerId),
+            photoUrl = "",
+            bio = "",
             lastMessage = "",
             lastTimestamp = System.currentTimeMillis()
         )
         docRef.set(group).await()
         return docRef.id
+    }
+
+    /** بيغيّر صورة بروفايل الجروب (مشرفين بس) */
+    suspend fun updateCustomGroupPhoto(groupId: String, photoUrl: String) {
+        db.collection("custom_groups").document(groupId)
+            .update("photoUrl", photoUrl).await()
+    }
+
+    /** بيغيّر بايو الجروب (مشرفين بس) */
+    suspend fun updateCustomGroupBio(groupId: String, bio: String) {
+        db.collection("custom_groups").document(groupId)
+            .update("bio", bio).await()
+    }
+
+    /** بيضيف أعضاء جدد للجروب (مشرفين بس) */
+    suspend fun addMembersToCustomGroup(groupId: String, newMemberIds: List<String>) {
+        if (newMemberIds.isEmpty()) return
+        db.collection("custom_groups").document(groupId)
+            .update("memberIds", com.google.firebase.firestore.FieldValue.arrayUnion(*newMemberIds.toTypedArray()))
+            .await()
+    }
+
+    /** بيخلي عضو في الجروب مشرف (صاحب الجروب بس) */
+    suspend fun promoteCustomGroupMember(groupId: String, uid: String) {
+        db.collection("custom_groups").document(groupId)
+            .update("adminIds", com.google.firebase.firestore.FieldValue.arrayUnion(uid))
+            .await()
+    }
+
+    /** بيحذف الجروب نهائيًا (صاحب الجروب بس) */
+    suspend fun deleteCustomGroup(groupId: String) {
+        db.collection("custom_groups").document(groupId).delete().await()
     }
 
     /** بث لحظي لرسائل جروب مخصص معين */

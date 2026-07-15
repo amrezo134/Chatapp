@@ -26,6 +26,8 @@ private object Routes {
     const val GROUP_CHAT = "group_chat"
     const val CREATE_GROUP = "create_group"
     const val CUSTOM_GROUP_CHAT = "custom_group_chat"
+    const val GROUP_INFO = "group_info"
+    const val GROUP_PHOTO = "group_photo"
     const val PROFILE = "profile"
     const val PROFILE_PHOTO = "profile_photo"
 }
@@ -156,6 +158,53 @@ fun AppNavigation(authViewModel: AuthViewModel) {
                         authViewModel = authViewModel,
                         chatViewModel = chatViewModel,
                         group = liveGroup,
+                        onBack = { navController.popBackStack() },
+                        onOpenGroupInfo = {
+                            selectedGroup = liveGroup
+                            navController.navigate(Routes.GROUP_INFO)
+                        },
+                        onOpenGroupPhoto = {
+                            selectedGroup = liveGroup
+                            navController.navigate(Routes.GROUP_PHOTO)
+                        },
+                        sharedTransitionScope = this@SharedTransitionLayout,
+                        animatedVisibilityScope = this@composable
+                    )
+                }
+            }
+
+            composable(Routes.GROUP_INFO) {
+                selectedGroup?.let { group ->
+                    val myGroups by chatViewModel.myCustomGroups.collectAsState()
+                    val liveGroup = myGroups.find { it.id == group.id } ?: group
+                    GroupInfoScreen(
+                        authViewModel = authViewModel,
+                        chatViewModel = chatViewModel,
+                        group = liveGroup,
+                        onBack = { navController.popBackStack() },
+                        onOpenGroupPhoto = {
+                            selectedGroup = liveGroup
+                            navController.navigate(Routes.GROUP_PHOTO)
+                        },
+                        onGroupDeleted = {
+                            navController.navigate(Routes.CHAT_LIST) {
+                                popUpTo(Routes.CHAT_LIST) { inclusive = true }
+                            }
+                        },
+                        sharedTransitionScope = this@SharedTransitionLayout,
+                        animatedVisibilityScope = this@composable
+                    )
+                }
+            }
+
+            composable(Routes.GROUP_PHOTO) {
+                selectedGroup?.let { group ->
+                    ProfilePhotoScreen(
+                        photoUrl = group.photoUrl,
+                        displayName = group.name,
+                        sharedKey = "group-photo-${group.id}",
+                        sharedTransitionScope = this@SharedTransitionLayout,
+                        animatedVisibilityScope = this@composable,
                         onBack = { navController.popBackStack() }
                     )
                 }

@@ -10,6 +10,7 @@ import com.creatix.chatapp.data.ChatGroup
 import com.creatix.chatapp.data.chatIdFor
 import com.creatix.chatapp.repository.ChatRepository
 import com.creatix.chatapp.repository.PresenceRepository
+import com.creatix.chatapp.ui.screens.QUICK_REACTION_EMOJIS
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -52,6 +53,44 @@ class ChatViewModel(
     fun loadMyProfile(uid: String) {
         viewModelScope.launch {
             _myProfile.value = repository.getCurrentUser(uid)
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // أكتر 6 إيموجي بيستخدمهم المستخدم (متخزّنة على السيرفر، بتتزامن بين كل أجهزته)
+    // ---------------------------------------------------------------
+
+    private val _quickReactionEmojis = MutableStateFlow(QUICK_REACTION_EMOJIS)
+    val quickReactionEmojis: StateFlow<List<String>> = _quickReactionEmojis
+
+    private var quickEmojisLoadedFor: String? = null
+
+    /** بتجيب أكتر 6 إيموجي استخدمهم المستخدم من السيرفر (مرة واحدة لكل جلسة) */
+    fun loadQuickReactionEmojis(myUid: String) {
+        if (quickEmojisLoadedFor == myUid) return
+        quickEmojisLoadedFor = myUid
+        viewModelScope.launch {
+            try {
+                _quickReactionEmojis.value = repository.getTopEmojis(myUid, 6, QUICK_REACTION_EMOJIS)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    /** بتسجّل استخدام إيموجي جديد: تحديث فوري محلي (optimistic) + حفظ على السيرفر بالخلفية */
+    fun recordEmojiUsage(myUid: String, emoji: String) {
+        val current = _quickReactionEmojis.value.toMutableList()
+        current.remove(emoji)
+        current.add(0, emoji)
+        _quickReactionEmojis.value = current.take(6)
+
+        viewModelScope.launch {
+            try {
+                repository.recordEmojiUsage(myUid, emoji)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 

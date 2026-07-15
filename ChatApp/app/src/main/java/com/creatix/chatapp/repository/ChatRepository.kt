@@ -121,6 +121,47 @@ class ChatRepository {
         }
     }
 
+    /**
+     * بتزوّد عدّاد استخدام إيموجي معيّن للمستخدم بواحد، وبتتخزن على السيرفر
+     * (جوه مستند users/{uid} في حقل emojiUsage) عشان تتزامن بين كل أجهزة المستخدم.
+     */
+    suspend fun recordEmojiUsage(uid: String, emoji: String) {
+        if (uid.isBlank() || emoji.isBlank()) return
+        try {
+            db.collection("users").document(uid)
+                .update("emojiUsage.$emoji", com.google.firebase.firestore.FieldValue.increment(1))
+                .await()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    /**
+     * بترجع أكتر [limit] إيموجي استخدمهم المستخدم (من السيرفر)، ولو عدد
+     * الإيموجي المستخدم أقل من [limit] بتكمّل الباقي من [fallback] بدون تكرار.
+     */
+    suspend fun getTopEmojis(uid: String, limit: Int = 6, fallback: List<String>): List<String> {
+        return try {
+            val snapshot = db.collection("users").document(uid).get().await()
+            @Suppress("UNCHECKED_CAST")
+            val usage = snapshot.get("emojiUsage") as? Map<String, Any> ?: emptyMap()
+            val sortedByUsage = usage.entries
+                .sortedByDescending { (it.value as? Number)?.toLong() ?: 0L }
+                .map { it.key }
+
+            val result = LinkedHashSet<String>()
+            result.addAll(sortedByUsage)
+            for (emoji in fallback) {
+                if (result.size >= limit) break
+                result.add(emoji)
+            }
+            result.take(limit)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            fallback.take(limit)
+        }
+    }
+
     /** بيتأكد إن مستند الشات موجود (بالـ participants) قبل ما نـ observe أي حاجة جواه */
     suspend fun ensureChatDocument(myUid: String, otherUid: String) {
         val chatId = chatIdFor(myUid, otherUid)
@@ -760,4 +801,3 @@ class ChatRepository {
             .await()
     }
 }
-

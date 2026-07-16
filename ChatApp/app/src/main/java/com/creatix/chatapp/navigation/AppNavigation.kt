@@ -39,6 +39,7 @@ fun AppNavigation(authViewModel: AuthViewModel) {
     val chatViewModel = remember { ChatViewModel() }
     var selectedUser by remember { mutableStateOf<ChatUser?>(null) }
     var profilePhotoUser by remember { mutableStateOf<ChatUser?>(null) }
+    var isViewingOwnPhoto by remember { mutableStateOf(false) }
     var selectedGroup by remember { mutableStateOf<ChatGroup?>(null) }
 
     val startDestination = if (authViewModel.isLoggedIn) Routes.CHAT_LIST else Routes.LOGIN
@@ -61,6 +62,7 @@ fun AppNavigation(authViewModel: AuthViewModel) {
             composable(Routes.REGISTER) {
                 RegisterScreen(
                     viewModel = authViewModel,
+                    chatViewModel = chatViewModel,
                     onRegisterSuccess = {
                         navController.navigate(Routes.CHAT_LIST) {
                             popUpTo(Routes.LOGIN) { inclusive = true }
@@ -87,6 +89,7 @@ fun AppNavigation(authViewModel: AuthViewModel) {
                     onOpenProfile = { navController.navigate(Routes.PROFILE) },
                     onOpenProfilePhoto = { user ->
                         profilePhotoUser = user
+                        isViewingOwnPhoto = false
                         navController.navigate(Routes.PROFILE_PHOTO)
                     },
                     sharedTransitionScope = this@SharedTransitionLayout,
@@ -106,6 +109,7 @@ fun AppNavigation(authViewModel: AuthViewModel) {
                     },
                     onOpenMyPhoto = {
                         profilePhotoUser = chatViewModel.myProfile.value
+                        isViewingOwnPhoto = true
                         navController.navigate(Routes.PROFILE_PHOTO)
                     },
                     sharedTransitionScope = this@SharedTransitionLayout,
@@ -122,6 +126,7 @@ fun AppNavigation(authViewModel: AuthViewModel) {
                         onBack = { navController.popBackStack() },
                         onOpenProfilePhoto = {
                             profilePhotoUser = user
+                            isViewingOwnPhoto = false
                             navController.navigate(Routes.PROFILE_PHOTO)
                         },
                         sharedTransitionScope = this@SharedTransitionLayout,
@@ -211,14 +216,20 @@ fun AppNavigation(authViewModel: AuthViewModel) {
             }
 
             composable(Routes.PROFILE_PHOTO) {
-                profilePhotoUser?.let { user ->
+                val myProfileLive by chatViewModel.myProfile.collectAsState()
+                val user = if (isViewingOwnPhoto) (myProfileLive ?: profilePhotoUser) else profilePhotoUser
+                user?.let { u ->
                     ProfilePhotoScreen(
-                        photoUrl = user.photoUrl,
-                        displayName = user.displayName.ifBlank { user.email },
-                        sharedKey = "profile-${user.uid}",
+                        photoUrl = u.photoUrl,
+                        displayName = u.displayName.ifBlank { u.email },
+                        sharedKey = "profile-${u.uid}",
                         sharedTransitionScope = this@SharedTransitionLayout,
                         animatedVisibilityScope = this@composable,
-                        onBack = { navController.popBackStack() }
+                        onBack = { navController.popBackStack() },
+                        isOwnProfile = isViewingOwnPhoto,
+                        currentBio = u.bio,
+                        myUid = authViewModel.currentUid,
+                        chatViewModel = chatViewModel
                     )
                 }
             }

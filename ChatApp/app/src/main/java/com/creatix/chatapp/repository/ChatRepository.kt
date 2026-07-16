@@ -121,8 +121,17 @@ class ChatRepository {
         }
     }
 
-    /**
-     * بتزوّد عدّاد استخدام إيموجي معيّن للمستخدم بواحد، وبتتخزن على السيرفر
+    /** بيحدّث صورة البروفايل بتاعة المستخدم (بعد ما يختارها من التليفون ويترفع على Cloudflare) */
+    suspend fun updateUserPhoto(uid: String, photoUrl: String) {
+        db.collection("users").document(uid).update("photoUrl", photoUrl).await()
+    }
+
+    /** بيحدّث بايو المستخدم */
+    suspend fun updateUserBio(uid: String, bio: String) {
+        db.collection("users").document(uid).update("bio", bio).await()
+    }
+
+    /** بتزوّد عدّاد استخدام إيموجي معيّن للمستخدم بواحد، وبتتخزن على السيرفر
      * (جوه مستند users/{uid} في حقل emojiUsage) عشان تتزامن بين كل أجهزة المستخدم.
      */
     suspend fun recordEmojiUsage(uid: String, emoji: String) {

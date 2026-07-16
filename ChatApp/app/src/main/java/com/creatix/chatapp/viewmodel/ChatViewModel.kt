@@ -56,6 +56,31 @@ class ChatViewModel(
         }
     }
 
+    /** بيرفع صورة اخترتها من التليفون ويحدّث بيها صورة البروفايل بتاعتي */
+    fun updateMyPhoto(uid: String, bytes: ByteArray, fileName: String, mimeType: String) {
+        viewModelScope.launch {
+            try {
+                val url = repository.uploadFileToCloudflare(bytes, fileName, mimeType)
+                repository.updateUserPhoto(uid, url)
+                _myProfile.value = _myProfile.value?.copy(photoUrl = url) ?: repository.getCurrentUser(uid)
+            } catch (e: Exception) {
+                _groupInfoError.value = e.message ?: "فشل تحديث صورة البروفايل"
+            }
+        }
+    }
+
+    /** بيحدّث بايو البروفايل بتاعي */
+    fun updateMyBio(uid: String, bio: String) {
+        viewModelScope.launch {
+            try {
+                repository.updateUserBio(uid, bio.trim())
+                _myProfile.value = _myProfile.value?.copy(bio = bio.trim()) ?: repository.getCurrentUser(uid)
+            } catch (e: Exception) {
+                _groupInfoError.value = e.message ?: "فشل تحديث البايو"
+            }
+        }
+    }
+
     // ---------------------------------------------------------------
     // أكتر 6 إيموجي بيستخدمهم المستخدم (متخزّنة على السيرفر، بتتزامن بين كل أجهزته)
     // ---------------------------------------------------------------

@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.Groups
@@ -51,6 +52,7 @@ fun ChatListScreen(
     onOpenCreateGroup: () -> Unit,
     onOpenProfile: () -> Unit,
     onOpenProfilePhoto: (ChatUser) -> Unit,
+    onOpenAiChat: () -> Unit,
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope
 ) {
@@ -88,23 +90,37 @@ fun ChatListScreen(
         containerColor = MaterialTheme.colorScheme.background,
         floatingActionButtonPosition = FabPosition.Start,
         floatingActionButton = {
-            Box {
-                FloatingActionButton(
-                    onClick = onOpenGroupChat,
-                    containerColor = Color.Transparent,
-                    elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp),
-                    modifier = Modifier
-                        .shadow(10.dp, CircleShape)
-                        .background(ChatAppBrandGradient, CircleShape)
-                ) {
-                    Icon(Icons.Default.Groups, contentDescription = "الجروب العام", tint = Color.White)
-                }
-                if (groupUnreadCount > 0) {
-                    Badge(
-                        modifier = Modifier.align(Alignment.TopEnd),
-                        containerColor = MaterialTheme.colorScheme.error
+            Column(horizontalAlignment = Alignment.Start, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Box {
+                    FloatingActionButton(
+                        onClick = onOpenAiChat,
+                        containerColor = Color.Transparent,
+                        elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp),
+                        modifier = Modifier
+                            .shadow(10.dp, CircleShape)
+                            .background(ChatAppBrandGradient, CircleShape)
                     ) {
-                        Text(if (groupUnreadCount > 99) "99+" else groupUnreadCount.toString())
+                        Icon(Icons.Default.AutoAwesome, contentDescription = "المساعد الذكي", tint = Color.White)
+                    }
+                }
+                Box {
+                    FloatingActionButton(
+                        onClick = onOpenGroupChat,
+                        containerColor = Color.Transparent,
+                        elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp),
+                        modifier = Modifier
+                            .shadow(10.dp, CircleShape)
+                            .background(ChatAppBrandGradient, CircleShape)
+                    ) {
+                        Icon(Icons.Default.Groups, contentDescription = "الجروب العام", tint = Color.White)
+                    }
+                    if (groupUnreadCount > 0) {
+                        Badge(
+                            modifier = Modifier.align(Alignment.TopEnd),
+                            containerColor = MaterialTheme.colorScheme.error
+                        ) {
+                            Text(if (groupUnreadCount > 99) "99+" else groupUnreadCount.toString())
+                        }
                     }
                 }
             }
@@ -426,4 +442,3 @@ private fun CustomGroupRow(group: ChatGroup, unreadCount: Int, onClick: () -> Un
         }
     }
 }
-

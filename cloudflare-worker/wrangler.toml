@@ -5,3 +5,7 @@ compatibility_date = "2026-01-01"
 [[r2_buckets]]
 binding = "MEDIA_BUCKET"
 bucket_name = "chatapp-media"
+
+# GEMINI_API_KEY متضبطش هنا في الملف ده خالص (عشان الملف ده بيترفع على GitHub).
+# لازم تضيفه كـ Secret بعد النشر بالأمر:
+#   wrangler secret put GEMINI_API_KEY

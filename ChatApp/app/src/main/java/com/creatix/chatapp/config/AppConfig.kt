@@ -6,5 +6,5 @@ object AppConfig {
      * غيّره لرابط الـ Worker الحقيقي بتاعك بعد النشر، مثال:
      * "https://chatapp-upload-api.YOUR_SUBDOMAIN.workers.dev"
      */
-    const val WORKER_BASE_URL = "https://chatapp-upload-api.amrezo134.workers.dev/"
+    const val WORKER_BASE_URL = "https://chatapp-upload-api.amrezo134.workers.dev"
 }

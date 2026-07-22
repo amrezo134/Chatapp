@@ -47,6 +47,66 @@ export default {
       });
     }
 
+    // شات الـ AI (Gemini): POST /gemini/chat
+    // التطبيق بيبعت هنا بس، والـ Worker هو اللي بيكلم Gemini بالـ API Key السري
+    // (مخزن كـ Secret في Cloudflare، مش موجود جوه كود التطبيق خالص)
+    if (url.pathname === "/gemini/chat" && request.method === "POST") {
+      const authHeader = request.headers.get("Authorization");
+      if (!authHeader) {
+        return new Response("Unauthorized", { status: 401, headers: cors });
+      }
+
+      if (!env.GEMINI_API_KEY) {
+        return new Response("GEMINI_API_KEY غير مضبوط على السيرفر", { status: 500, headers: cors });
+      }
+
+      let payload;
+      try {
+        payload = await request.json();
+      } catch {
+        return new Response("JSON غير صالح", { status: 400, headers: cors });
+      }
+
+      // payload.contents لازم يكون بصيغة Gemini: [{ role: "user"|"model", parts: [{ text: "..." }] }]
+      const contents = Array.isArray(payload.contents) ? payload.contents : [];
+      if (contents.length === 0) {
+        return new Response("contents مطلوب", { status: 400, headers: cors });
+      }
+
+      const model = payload.model || "gemini-2.0-flash";
+      const geminiUrl =
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`;
+
+      const geminiRes = await fetch(geminiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents,
+          systemInstruction: payload.systemInstruction || undefined,
+          generationConfig: {
+            temperature: 0.8,
+            maxOutputTokens: 1024,
+          },
+        }),
+      });
+
+      const data = await geminiRes.json();
+
+      if (!geminiRes.ok) {
+        return new Response(JSON.stringify({ error: data }), {
+          status: geminiRes.status,
+          headers: { ...cors, "Content-Type": "application/json" },
+        });
+      }
+
+      const reply =
+        data?.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
+
+      return new Response(JSON.stringify({ reply }), {
+        headers: { ...cors, "Content-Type": "application/json" },
+      });
+    }
+
     // جلب ملف: GET /file/xxxx
     if (url.pathname.startsWith("/file/") && request.method === "GET") {
       const key = decodeURIComponent(url.pathname.replace("/file/", ""));

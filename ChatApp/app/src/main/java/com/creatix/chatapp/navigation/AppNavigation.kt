@@ -30,6 +30,7 @@ private object Routes {
     const val GROUP_PHOTO = "group_photo"
     const val PROFILE = "profile"
     const val PROFILE_PHOTO = "profile_photo"
+    const val AI_CHAT = "ai_chat"
 }
 
 @OptIn(ExperimentalSharedTransitionApi::class)
@@ -87,6 +88,7 @@ fun AppNavigation(authViewModel: AuthViewModel) {
                     },
                     onOpenCreateGroup = { navController.navigate(Routes.CREATE_GROUP) },
                     onOpenProfile = { navController.navigate(Routes.PROFILE) },
+                    onOpenAiChat = { navController.navigate(Routes.AI_CHAT) },
                     onOpenProfilePhoto = { user ->
                         profilePhotoUser = user
                         isViewingOwnPhoto = false
@@ -133,6 +135,12 @@ fun AppNavigation(authViewModel: AuthViewModel) {
                         animatedVisibilityScope = this@composable
                     )
                 }
+            }
+
+            composable(Routes.AI_CHAT) {
+                AiChatScreen(
+                    onBack = { navController.popBackStack() }
+                )
             }
 
             composable(Routes.GROUP_CHAT) {

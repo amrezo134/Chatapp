@@ -83,7 +83,7 @@ export default {
 
       let aiResponse;
       try {
-        aiResponse = await env.AI.run("@cf/meta/llama-3.1-8b-instruct", {
+        aiResponse = await env.AI.run("@cf/moonshotai/kimi-k2.6", {
           messages,
           temperature: 0.8,
           max_tokens: 1024,

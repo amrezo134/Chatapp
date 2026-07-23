@@ -9,3 +9,5 @@ bucket_name = "chatapp-media"
 # GEMINI_API_KEY متضبطش هنا في الملف ده خالص (عشان الملف ده بيترفع على GitHub).
 # لازم تضيفه كـ Secret بعد النشر بالأمر:
 #   wrangler secret put GEMINI_API_KEY
+[ai]
+binding = "AI"

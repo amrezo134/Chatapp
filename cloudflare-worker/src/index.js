@@ -13,14 +13,12 @@ export default {
 
     // رفع ملف: POST /upload
     if (url.pathname === "/upload" && request.method === "POST") {
-      // تحقق بسيط: لازم يبقى فيه Authorization header (Firebase ID Token)
       const authHeader = request.headers.get("Authorization");
       if (!authHeader) {
         return new Response("Unauthorized", { status: 401, headers: cors });
       }
 
-      // ليمت حجم الملف: 20 ميجا كحد أقصى
-      const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB بالبايت
+      const MAX_FILE_SIZE = 20 * 1024 * 1024;
       const contentLength = Number(request.headers.get("Content-Length") || 0);
       if (contentLength > MAX_FILE_SIZE) {
         return new Response("حجم الملف أكبر من 20 ميجا", { status: 413, headers: cors });
@@ -32,7 +30,6 @@ export default {
 
       const body = await request.arrayBuffer();
 
-      // تحقق تاني بعد قراءة الملف فعليًا (احتياطي لو الـ Content-Length كان غلط أو مش موجود)
       if (body.byteLength > MAX_FILE_SIZE) {
         return new Response("حجم الملف أكبر من 20 ميجا", { status: 413, headers: cors });
       }
@@ -47,17 +44,16 @@ export default {
       });
     }
 
-    // شات الـ AI (Gemini): POST /gemini/chat
-    // التطبيق بيبعت هنا بس، والـ Worker هو اللي بيكلم Gemini بالـ API Key السري
-    // (مخزن كـ Secret في Cloudflare، مش موجود جوه كود التطبيق خالص)
+    // شات الـ AI (Cloudflare Workers AI): POST /gemini/chat
+    // مفيش أي مزود خارجي ولا API key خالص - كله جوه Cloudflare عن طريق الـ AI binding
     if (url.pathname === "/gemini/chat" && request.method === "POST") {
       const authHeader = request.headers.get("Authorization");
       if (!authHeader) {
         return new Response("Unauthorized", { status: 401, headers: cors });
       }
 
-      if (!env.GEMINI_API_KEY) {
-        return new Response("GEMINI_API_KEY غير مضبوط على السيرفر", { status: 500, headers: cors });
+      if (!env.AI) {
+        return new Response("AI binding غير مضبوط على السيرفر", { status: 500, headers: cors });
       }
 
       let payload;
@@ -67,40 +63,39 @@ export default {
         return new Response("JSON غير صالح", { status: 400, headers: cors });
       }
 
-      // payload.contents لازم يكون بصيغة Gemini: [{ role: "user"|"model", parts: [{ text: "..." }] }]
       const contents = Array.isArray(payload.contents) ? payload.contents : [];
       if (contents.length === 0) {
         return new Response("contents مطلوب", { status: 400, headers: cors });
       }
 
-      const model = payload.model || "gemini-2.0-flash";
-      const geminiUrl =
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`;
+      const messages = [];
 
-      const geminiRes = await fetch(geminiUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents,
-          systemInstruction: payload.systemInstruction || undefined,
-          generationConfig: {
-            temperature: 0.8,
-            maxOutputTokens: 1024,
-          },
-        }),
-      });
+      const systemText = payload.systemInstruction?.parts?.map((p) => p.text || "").join("") || "";
+      if (systemText) {
+        messages.push({ role: "system", content: systemText });
+      }
 
-      const data = await geminiRes.json();
+      for (const c of contents) {
+        const role = c.role === "model" ? "assistant" : "user";
+        const text = Array.isArray(c.parts) ? c.parts.map((p) => p.text || "").join("") : "";
+        messages.push({ role, content: text });
+      }
 
-      if (!geminiRes.ok) {
-        return new Response(JSON.stringify({ error: data }), {
-          status: geminiRes.status,
+      let aiResponse;
+      try {
+        aiResponse = await env.AI.run("@cf/meta/llama-3.1-8b-instruct", {
+          messages,
+          temperature: 0.8,
+          max_tokens: 1024,
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: String(err) }), {
+          status: 500,
           headers: { ...cors, "Content-Type": "application/json" },
         });
       }
 
-      const reply =
-        data?.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
+      const reply = aiResponse?.response || "";
 
       return new Response(JSON.stringify({ reply }), {
         headers: { ...cors, "Content-Type": "application/json" },

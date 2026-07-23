@@ -1,76 +1,107 @@
 package com.creatix.chatapp.repository
 
-import com.creatix.chatapp.config.AppConfig
 import com.creatix.chatapp.data.AiChatMessage
-import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
-import java.io.OutputStreamWriter
-import java.net.HttpURLConnection
-import java.net.URL
 
 /**
- * الريبو ده مبيكلمش Gemini مباشرة ولا بيشيل مفتاح الـ API خالص.
- * هو بيكلم الـ Cloudflare Worker بتاعنا على /gemini/chat، والـ Worker هو اللي
- * عنده المفتاح السري ومعمول عنده الاتصال الفعلي بـ Gemini.
- * ده بيحمي المفتاح من إنه يتسرب لو حد فك التطبيق (APK) أو شاف الكود على GitHub.
+ * مساعد ذكي محلي بالكامل — مفيش أي اتصال بأي AI خارجي (لا Gemini ولا DeepSeek ولا غيره).
+ *
+ * الفكرة: بيانات التدريب (كلمات مفتاحية -> رد) بتتخزن في Firestore تحت
+ * مجموعة "botKnowledge"، وبتتضاف من لوحة تحكم ويب منفصلة (admin-training.html).
+ * التطبيق بيسحب البيانات دي مرة واحدة (وبيكاشها في الذاكرة)، وبيطابقها محليًا
+ * مع رسالة المستخدم — من غير ما يبعت أي حاجة لأي سيرفر AI برة.
+ *
+ * شكل الـ document في Firestore:
+ * {
+ *   "patterns": "الأسعار, بكام, تكلفة",   // كلمات مفتاحية مفصولة بفاصلة
+ *   "reply": "الأسعار بتتحدد حسب حجم المشروع..."
+ * }
  */
 object AiChatRepository {
 
-    private const val SYSTEM_INSTRUCTION =
-        "إنت مساعد ذكي جوه تطبيق شات اسمه ChatApp. جاوب باختصار ووضوح، وبالعربي لو المستخدم كتب بالعربي."
+    private data class KnowledgeEntry(val keywords: List<String>, val reply: String)
 
+    private val db = FirebaseFirestore.getInstance()
+    private var cache: List<KnowledgeEntry>? = null
+    private var lastFetchAt: Long = 0L
+
+    // مدة صلاحية الكاش — بعدها التطبيق يجيب نسخة جديدة من Firestore تلقائي
+    private const val CACHE_TTL_MS = 5 * 60 * 1000L // 5 دقايق
+
+    private const val GENERIC_FALLBACK =
+        "مفهمتش قصدك بالظبط 🤔 ممكن توضحلي أكتر؟"
+
+    /** لسه متاحة لو عايز تجبر تحديث فوري (مثلاً بعد إضافة سؤال وانت في وضع الاختبار). */
+    fun invalidateCache() {
+        cache = null
+        lastFetchAt = 0L
+    }
+
+    private suspend fun loadKnowledge(): List<KnowledgeEntry> {
+        val isFresh = cache != null && (System.currentTimeMillis() - lastFetchAt) < CACHE_TTL_MS
+        if (isFresh) return cache!!
+
+        return withContext(Dispatchers.IO) {
+            val snapshot = db.collection("botKnowledge").get().await()
+            val entries = snapshot.documents.mapNotNull { doc ->
+                val patterns = doc.getString("patterns") ?: return@mapNotNull null
+                val reply = doc.getString("reply") ?: return@mapNotNull null
+                val keywords = patterns.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                if (keywords.isEmpty() || reply.isBlank()) null else KnowledgeEntry(keywords, reply)
+            }
+            cache = entries
+            lastFetchAt = System.currentTimeMillis()
+            entries
+        }
+    }
+
+    // تبسيط للعربي: توحيد الألف والهمزات والتاء المربوطة وإزالة التشكيل، عشان المطابقة تبقى مرنة
+    private fun normalizeArabic(text: String): String {
+        return text
+            .replace(Regex("[إأآا]"), "ا")
+            .replace('ة', 'ه')
+            .replace('ى', 'ي')
+            .replace(Regex("[ًٌٍَُِّْ]"), "")
+            .lowercase()
+            .trim()
+    }
+
+    /**
+     * نفس توقيع الدالة القديمة بالظبط عشان AiChatViewModel يفضل شغال من غير أي تعديل.
+     * history: كل الرسائل لحد دلوقتي — إحنا بناخد آخر رسالة من المستخدم بس ونطابقها.
+     */
     suspend fun sendMessage(history: List<AiChatMessage>): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val idToken = FirebaseAuth.getInstance().currentUser?.getIdToken(false)?.await()?.token
-                ?: return@withContext Result.failure(IllegalStateException("لازم تسجل الدخول الأول"))
-
-            val contents = JSONArray()
-            history.forEach { msg ->
-                contents.put(
-                    JSONObject().apply {
-                        put("role", if (msg.isFromUser) "user" else "model")
-                        put("parts", JSONArray().put(JSONObject().put("text", msg.text)))
-                    }
-                )
+            val lastUserMsg = history.lastOrNull { it.isFromUser }?.text.orEmpty()
+            if (lastUserMsg.isBlank()) {
+                return@withContext Result.success(GENERIC_FALLBACK)
             }
 
-            val payload = JSONObject().apply {
-                put("contents", contents)
-                put("model", "gemini-2.0-flash")
-                put(
-                    "systemInstruction",
-                    JSONObject().put("parts", JSONArray().put(JSONObject().put("text", SYSTEM_INSTRUCTION)))
-                )
+            val normMsg = normalizeArabic(lastUserMsg)
+            val knowledge = loadKnowledge()
+
+            var best: KnowledgeEntry? = null
+            var bestScore = 0.0
+
+            knowledge.forEach { entry ->
+                var score = 0.0
+                entry.keywords.forEach { rawKeyword ->
+                    val k = normalizeArabic(rawKeyword)
+                    if (k.isEmpty()) return@forEach
+                    // كلمات أطول (5 حروف فأكتر) = أكثر تحديدًا = وزن أعلى، زي نظام الموقع بالظبط
+                    val weight = if (k.length >= 5) 2.0 else 1.0
+                    if (normMsg.contains(k)) score += weight
+                }
+                if (score > bestScore) {
+                    bestScore = score
+                    best = entry
+                }
             }
 
-            val url = URL("${AppConfig.WORKER_BASE_URL}/gemini/chat")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                doOutput = true
-                setRequestProperty("Content-Type", "application/json; charset=UTF-8")
-                setRequestProperty("Authorization", "Bearer $idToken")
-                connectTimeout = 20_000
-                readTimeout = 30_000
-            }
-
-            OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(payload.toString()) }
-
-            val responseCode = conn.responseCode
-            val stream = if (responseCode in 200..299) conn.inputStream else conn.errorStream
-            val responseText = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            conn.disconnect()
-
-            if (responseCode !in 200..299) {
-                return@withContext Result.failure(IllegalStateException("فشل الاتصال بالمساعد ($responseCode): $responseText"))
-            }
-
-            val reply = JSONObject(responseText).optString("reply").ifBlank {
-                "معرفتش أجاوب دلوقتي، جرّب تاني."
-            }
+            val reply = if (best != null && bestScore >= 1.0) best!!.reply else GENERIC_FALLBACK
             Result.success(reply)
         } catch (e: Exception) {
             Result.failure(e)

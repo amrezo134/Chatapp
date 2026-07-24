@@ -23,10 +23,12 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.messaging.FirebaseMessaging
 import com.creatix.chatapp.navigation.AppNavigation
 import com.creatix.chatapp.viewmodel.AuthViewModel
+import com.creatix.chatapp.repository.AiChatRepository
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AiChatRepository.init(applicationContext)
         setContent {
             ChatAppTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {

@@ -26,7 +26,8 @@ import com.creatix.chatapp.viewmodel.AuthViewModel
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
+    super.onCreate(savedInstanceState)
+    AiChatRepository.init(applicationContext)
         setContent {
             ChatAppTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {

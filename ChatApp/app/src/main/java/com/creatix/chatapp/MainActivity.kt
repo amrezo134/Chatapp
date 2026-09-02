@@ -1,6 +1,7 @@
 package com.creatix.chatapp
 
 import android.Manifest
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -12,6 +13,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
@@ -22,12 +24,18 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.messaging.FirebaseMessaging
 import com.creatix.chatapp.navigation.AppNavigation
+import com.creatix.chatapp.services.MyFirebaseMessagingService
 import com.creatix.chatapp.viewmodel.AuthViewModel
 import com.creatix.chatapp.repository.AiChatRepository
 
 class MainActivity : ComponentActivity() {
+
+    // الشات اللي لازم نفتحه لو اليوزر جاي من إشعار (state عشان يفضل يحدث الشاشة حتى لو مفيش recreate)
+    private val pendingChatUid = mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        pendingChatUid.value = intent?.getStringExtra(MyFirebaseMessagingService.EXTRA_OPEN_CHAT_UID)
         AiChatRepository.init(applicationContext)
         setContent {
             ChatAppTheme {
@@ -72,9 +80,21 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    AppNavigation(authViewModel = authViewModel)
+                    AppNavigation(
+                        authViewModel = authViewModel,
+                        pendingChatUid = pendingChatUid.value,
+                        onPendingChatUidConsumed = { pendingChatUid.value = null }
+                    )
                 }
             }
         }
+    }
+
+    // لما التطبيق يكون شغال أصلًا (singleTask) والمستخدم يضغط على إشعار تاني،
+    // مش بيتعمل onCreate جديد، لازم نمسك الـ intent الجديد من هنا
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        pendingChatUid.value = intent.getStringExtra(MyFirebaseMessagingService.EXTRA_OPEN_CHAT_UID)
     }
 }

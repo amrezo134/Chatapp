@@ -3,16 +3,20 @@ package com.creatix.chatapp.services
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.Person
 import com.creatix.chatapp.MainActivity
 import com.creatix.chatapp.R
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * الخدمة دي بتشتغل لوحدها حتى لو التطبيق مقفول تمامًا،
@@ -23,6 +27,28 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
     companion object {
         const val CHANNEL_ID = "chat_messages_channel"
         const val CHANNEL_NAME = "رسائل الشات"
+        const val EXTRA_OPEN_CHAT_UID = "openChatWithUid"
+        private const val EXTRA_SENDER_KEY = "senderKey"
+
+        // بنخزن هنا كل الرسائل اللي لسه معروضة كإشعار لكل شخص،
+        // عشان لو جالنا رسالتين من نفس الشخص نجمعهم في إشعار واحد بدل ما يبقوا اتنين
+        private val pendingMessages = ConcurrentHashMap<String, MutableList<String>>()
+
+        /** بتتنادى لما المستخدم يفتح المحادثة (بالضغط على الإشعار أو من جوه التطبيق)
+         *  عشان نمسح الرسائل المتجمعة ونقفل إشعارها */
+        fun clearConversation(context: Context, senderKey: String) {
+            if (senderKey.isBlank()) return
+            pendingMessages.remove(senderKey)
+            NotificationManagerCompat.from(context).cancel(senderKey.hashCode())
+        }
+    }
+
+    /** بيتنفذ لو المستخدم مسح الإشعار بإيده (سحب لبرا) من غير ما يضغط عليه */
+    class DismissReceiver : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val senderKey = intent.getStringExtra(EXTRA_SENDER_KEY) ?: return
+            pendingMessages.remove(senderKey)
+        }
     }
 
     /** كل ما التوكن بتاع الجهاز يتغير، لازم نحدثه في Firestore عشان السيرفر يقدر يبعتله */
@@ -34,7 +60,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             .update("fcmToken", token)
     }
 
-    /** لما إشعار يوصل والتطبيق شغال (foreground) */
+    /** لما إشعار يوصل والتطبيق شغال (foreground) أو في الخلفية */
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
 
@@ -52,27 +78,60 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
     private fun showNotification(title: String, body: String, senderUid: String) {
         createChannelIfNeeded()
 
-        val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-            putExtra("openChatWithUid", senderUid)
+        // مفتاح تجميع الرسائل: بيستخدم الـ senderUid لو موجود، عشان كل محادثة
+        // ليها إشعار واحد بس بيتحدث لما يجيله رسالة جديدة
+        val senderKey = senderUid.ifBlank { title }
+        val notificationId = senderKey.hashCode()
+
+        val messages = pendingMessages.getOrPut(senderKey) { mutableListOf() }
+        messages.add(body)
+
+        val openIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            putExtra(EXTRA_OPEN_CHAT_UID, senderUid)
         }
-        val pendingIntent = PendingIntent.getActivity(
-            this, senderUid.hashCode(), intent,
+        val contentPendingIntent = PendingIntent.getActivity(
+            this, notificationId, openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val dismissIntent = Intent(this, DismissReceiver::class.java).apply {
+            putExtra(EXTRA_SENDER_KEY, senderKey)
+        }
+        val dismissPendingIntent = PendingIntent.getBroadcast(
+            this, notificationId, dismissIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // بنستخدم MessagingStyle عشان نعرض كل الرسائل اللي لسه ماتفتحتش من نفس الشخص
+        // في إشعار واحد بس (زي الوتس بالظبط)
+        val sender = Person.Builder().setName(title).build()
+        val me = Person.Builder().setName("أنا").build()
+        val messagingStyle = NotificationCompat.MessagingStyle(me)
+            .setConversationTitle(if (messages.size > 1) title else null)
+
+        messages.forEach { line ->
+            messagingStyle.addMessage(line, System.currentTimeMillis(), sender)
+        }
+
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification) // الأيقونة الأبيض/أسود
+            .setSmallIcon(R.drawable.ic_notification)
             .setColor(getColor(R.color.notification_color))
+            .setStyle(messagingStyle)
             .setContentTitle(title)
             .setContentText(body)
             .setAutoCancel(true)
-            .setContentIntent(pendingIntent)
+            .setContentIntent(contentPendingIntent)
+            .setDeleteIntent(dismissPendingIntent)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
 
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify(System.currentTimeMillis().toInt(), notification)
+        try {
+            NotificationManagerCompat.from(this).notify(notificationId, notification)
+        } catch (e: SecurityException) {
+            // المستخدم لسه ما ادّاش إذن الإشعارات (أندرويد 13+)
+            e.printStackTrace()
+        }
     }
 
     private fun createChannelIfNeeded() {

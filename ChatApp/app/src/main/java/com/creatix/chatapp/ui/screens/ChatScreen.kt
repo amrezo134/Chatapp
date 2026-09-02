@@ -65,6 +65,7 @@ import coil.compose.AsyncImage
 import com.creatix.chatapp.data.ChatUser
 import com.creatix.chatapp.data.Message
 import com.creatix.chatapp.data.chatIdFor
+import com.creatix.chatapp.services.MyFirebaseMessagingService
 import com.creatix.chatapp.ui.theme.ChatAppBrandGradient
 import com.creatix.chatapp.ui.theme.ChatAppSentBubbleGradient
 import com.creatix.chatapp.viewmodel.AuthViewModel
@@ -274,6 +275,7 @@ fun ChatScreen(
     LaunchedEffect(chatId) {
         chatViewModel.loadMessages(chatId, myUid, otherUser.uid)
         chatViewModel.observeTyping(chatId, otherUser.uid)
+        MyFirebaseMessagingService.clearConversation(context, otherUser.uid)
     }
 
     LaunchedEffect(myUid) { chatViewModel.loadMyDisplayName(myUid) }

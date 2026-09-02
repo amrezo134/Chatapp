@@ -3,17 +3,20 @@ package com.creatix.chatapp.navigation
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.creatix.chatapp.data.ChatUser
 import com.creatix.chatapp.data.ChatGroup
+import com.creatix.chatapp.services.MyFirebaseMessagingService
 import com.creatix.chatapp.ui.screens.*
 import com.creatix.chatapp.viewmodel.AuthViewModel
 import com.creatix.chatapp.viewmodel.ChatViewModel
@@ -35,15 +38,38 @@ private object Routes {
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-fun AppNavigation(authViewModel: AuthViewModel) {
+fun AppNavigation(
+    authViewModel: AuthViewModel,
+    pendingChatUid: String? = null,
+    onPendingChatUidConsumed: () -> Unit = {}
+) {
     val navController: NavHostController = rememberNavController()
     val chatViewModel = remember { ChatViewModel() }
+    val context = LocalContext.current
     var selectedUser by remember { mutableStateOf<ChatUser?>(null) }
     var profilePhotoUser by remember { mutableStateOf<ChatUser?>(null) }
     var isViewingOwnPhoto by remember { mutableStateOf(false) }
     var selectedGroup by remember { mutableStateOf<ChatGroup?>(null) }
 
     val startDestination = if (authViewModel.isLoggedIn) Routes.CHAT_LIST else Routes.LOGIN
+
+    // لو جاي فاتح التطبيق من إشعار رسالة، نفتحله المحادثة بتاعة اللي بعتها على طول
+    LaunchedEffect(pendingChatUid) {
+        val uid = pendingChatUid
+        if (uid.isNullOrBlank() || !authViewModel.isLoggedIn) return@LaunchedEffect
+
+        val user = chatViewModel.users.value.find { it.uid == uid }
+            ?: chatViewModel.fetchUserByUid(uid)
+
+        if (user != null) {
+            selectedUser = user
+            navController.navigate(Routes.CHAT) {
+                popUpTo(Routes.CHAT_LIST)
+            }
+        }
+        MyFirebaseMessagingService.clearConversation(context, uid)
+        onPendingChatUidConsumed()
+    }
 
     SharedTransitionLayout {
         NavHost(navController = navController, startDestination = startDestination) {

@@ -7,6 +7,9 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
@@ -41,6 +44,21 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             pendingMessages.remove(senderKey)
             NotificationManagerCompat.from(context).cancel(senderKey.hashCode())
         }
+
+        /**
+         * لازم القناة دي تتعمل أول ما التطبيق يفتح (مش بس لما إشعار يوصل وهو فاتح)،
+         * عشان لما إشعار notification+data يوصل والتطبيق مقفول، النظام يقدر يعرضه
+         * على القناة دي مباشرة من غير ما يشغّل onMessageReceived أصلاً.
+         */
+        fun ensureNotificationChannel(context: Context) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                val channel = NotificationChannel(
+                    CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_HIGH
+                )
+                manager.createNotificationChannel(channel)
+            }
+        }
     }
 
     /** بيتنفذ لو المستخدم مسح الإشعار بإيده (سحب لبرا) من غير ما يضغط عليه */
@@ -60,9 +78,17 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             .update("fcmToken", token)
     }
 
+    /** بتظهر رسالة على الشاشة عشان نقدر نتابع تنفيذ الكود خطوة خطوة من غير Logcat */
+    private fun debugToast(text: String) {
+        Handler(Looper.getMainLooper()).post {
+            Toast.makeText(applicationContext, "DEBUG: $text", Toast.LENGTH_LONG).show()
+        }
+    }
+
     /** لما إشعار يوصل والتطبيق شغال (foreground) أو في الخلفية */
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
+        debugToast("onMessageReceived اتنفذت")
 
         val title = message.notification?.title
             ?: message.data["title"]
@@ -72,11 +98,16 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             ?: ""
         val senderUid = message.data["senderId"] ?: ""
 
-        showNotification(title, body, senderUid)
+        try {
+            showNotification(title, body, senderUid)
+        } catch (e: Exception) {
+            debugToast("استثناء في showNotification: ${e.javaClass.simpleName} - ${e.message}")
+        }
     }
 
     private fun showNotification(title: String, body: String, senderUid: String) {
         createChannelIfNeeded()
+        debugToast("القناة اتعملت، جاري بناء الإشعار")
 
         // مفتاح تجميع الرسائل: بيستخدم الـ senderUid لو موجود، عشان كل محادثة
         // ليها إشعار واحد بس بيتحدث لما يجيله رسالة جديدة
@@ -126,21 +157,21 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
 
+        val areEnabled = NotificationManagerCompat.from(this).areNotificationsEnabled()
+        debugToast("قبل notify() - الإشعارات مفعّلة على مستوى النظام: $areEnabled")
+
         try {
             NotificationManagerCompat.from(this).notify(notificationId, notification)
+            debugToast("notify() اتنفذت من غير أي استثناء")
         } catch (e: SecurityException) {
             // المستخدم لسه ما ادّاش إذن الإشعارات (أندرويد 13+)
-            e.printStackTrace()
+            debugToast("SecurityException في notify(): ${e.message}")
+        } catch (e: Exception) {
+            debugToast("استثناء تاني في notify(): ${e.javaClass.simpleName} - ${e.message}")
         }
     }
 
     private fun createChannelIfNeeded() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            val channel = NotificationChannel(
-                CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_HIGH
-            )
-            manager.createNotificationChannel(channel)
-        }
+        ensureNotificationChannel(applicationContext)
     }
 }

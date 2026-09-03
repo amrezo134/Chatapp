@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -33,23 +34,52 @@ class MainActivity : ComponentActivity() {
     // الشات اللي لازم نفتحه لو اليوزر جاي من إشعار (state عشان يفضل يحدث الشاشة حتى لو مفيش recreate)
     private val pendingChatUid = mutableStateOf<String?>(null)
 
+    /**
+     * بتاخد التوكن الحالي وتحدّثه في Firestore لليوزر المسجل دخوله دلوقتي.
+     * بتترفض بصمت لو مفيش يوزر مسجل لسه، وده بالظبط اللي كان بيحصل قبل كده
+     * لو الكود اتنفذ قبل ما جلسة تسجيل الدخول تسترجع نفسها.
+     */
+    private fun refreshFcmToken() {
+        val userId = FirebaseAuth.getInstance().currentUser?.uid
+        if (userId == null) {
+            Toast.makeText(this, "DEBUG: مفيش currentUser لسه، هنستنى AuthStateListener", Toast.LENGTH_LONG).show()
+            return
+        }
+        FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+            if (task.isSuccessful) {
+                val token = task.result
+                Toast.makeText(this, "DEBUG: هيتحدث توكن لليوزر $userId: ${token.take(12)}...", Toast.LENGTH_LONG).show()
+                FirebaseFirestore.getInstance().collection("users")
+                    .document(userId)
+                    .update("fcmToken", token)
+                    .addOnSuccessListener {
+                        Toast.makeText(this, "DEBUG: التوكن اتحفظ في Firestore بنجاح", Toast.LENGTH_LONG).show()
+                    }
+                    .addOnFailureListener { e ->
+                        Toast.makeText(this, "DEBUG: فشل حفظ التوكن: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+            } else {
+                Toast.makeText(this, "DEBUG: فشل جلب التوكن: ${task.exception?.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        MyFirebaseMessagingService.ensureNotificationChannel(applicationContext)
         pendingChatUid.value = intent?.getStringExtra(MyFirebaseMessagingService.EXTRA_OPEN_CHAT_UID)
         AiChatRepository.init(applicationContext)
+
+        // بنحاول نحدّث التوكن فورًا (لو فيه جلسة دخول محفوظة ومسترجعة بالفعل)...
+        refreshFcmToken()
+        // ...وبرضو بنراقب أي تغيير في حالة تسجيل الدخول (زي استرجاع الجلسة بعد التثبيت الجديد
+        // أو تسجيل دخول جديد) عشان نضمن إن التوكن هيتحدث حتى لو onCreate اتنفذ قبل الأوان
+        FirebaseAuth.getInstance().addAuthStateListener { refreshFcmToken() }
+
         setContent {
             ChatAppTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val authViewModel = remember { AuthViewModel() }
-                    FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
-                    if (task.isSuccessful) {
-                        val token = task.result
-                        val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return@addOnCompleteListener
-                        FirebaseFirestore.getInstance().collection("users")
-                            .document(userId)
-                            .update("fcmToken", token)
-                    }
-                }
 
                     // من أندرويد 13 (API 33) لازم تطلب إذن الإشعارات صراحة من المستخدم
                     val permissionLauncher = rememberLauncherForActivityResult(

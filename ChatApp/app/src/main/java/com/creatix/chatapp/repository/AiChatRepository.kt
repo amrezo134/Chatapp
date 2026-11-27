@@ -12,6 +12,7 @@ import com.google.firebase.ai.type.content
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.QuerySnapshot
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 
@@ -141,13 +142,19 @@ object AiChatRepository {
 
     // ---------------- Gemini (Firebase AI Logic - Gemini Developer API) ----------------
 
-    // gemini-3.8-flash: الموديل المجاني الحالي (gemini-2.5-flash اتقفل/deprecated في أواخر 2026)
-    private const val GEMINI_MODEL = "gemini-3.8-flash"
+    // سلسلة موديلات مجانية (billing not required حسب دوكيومنت Firebase الحالية):
+    // لو الأساسي مزدحم (ServerException high demand) نجرّب تاني وبعدين ننزل للاحتياطي.
+    // ملحوظة: gemini-2.5-flash اتقفل/deprecated في أواخر 2026 — متحدّثش عليه.
+    private val MODEL_CHAIN = listOf("gemini-3.8-flash", "gemini-3.5-flash-lite")
     private const val HISTORY_LIMIT = 20
+    private const val ATTEMPTS_PER_MODEL = 2
+    private const val RETRY_DELAY_MS = 1_500L
 
-    private val geminiModel by lazy {
+    private val geminiModels = mutableMapOf<String, com.google.firebase.ai.type.GenerativeModel>()
+
+    private fun geminiModel(name: String) = geminiModels.getOrPut(name) {
         Firebase.ai(backend = GenerativeBackend.googleAI()).generativeModel(
-            modelName = GEMINI_MODEL,
+            modelName = name,
             systemInstruction = content {
                 text(
                     "أنت مساعد ذكي ودود جوه تطبيق دردشة اسمه Chatapp. " +
@@ -165,9 +172,21 @@ object AiChatRepository {
         val firstUserIdx = mapped.indexOfFirst { it.role == "user" }
         val chatHistory = if (firstUserIdx >= 0) mapped.drop(firstUserIdx).takeLast(HISTORY_LIMIT) else emptyList()
 
-        val response = geminiModel.startChat(chatHistory).sendMessage(lastUserMsg)
-        return response.text?.trim().takeUnless { it.isNullOrBlank() }
-            ?: throw Exception("Empty Gemini response")
+        var lastError: Exception = Exception("no Gemini attempt ran")
+        for (modelName in MODEL_CHAIN) {
+            repeat(ATTEMPTS_PER_MODEL) { attempt ->
+                try {
+                    val response = geminiModel(modelName).startChat(chatHistory).sendMessage(lastUserMsg)
+                    return response.text?.trim().takeUnless { it.isNullOrBlank() }
+                        ?: throw Exception("Empty Gemini response")
+                } catch (e: Exception) {
+                    lastError = e
+                    Log.w("AiChat", "Gemini $modelName attempt ${attempt + 1} failed: ${e.javaClass.simpleName}: ${e.message}")
+                    if (attempt + 1 < ATTEMPTS_PER_MODEL) delay(RETRY_DELAY_MS)
+                }
+            }
+        }
+        throw lastError
     }
 
     /**

@@ -14,6 +14,7 @@ import androidx.media3.transformer.Effects
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.EditedMediaItem
+import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
 import kotlinx.coroutines.Dispatchers
@@ -154,7 +155,10 @@ object MediaCompressor {
                     val editedItem = EditedMediaItem.Builder(MediaItem.fromUri(input))
                         .setEffects(Effects(emptyList(), listOf(Presentation.createForHeight(VIDEO_MAX_HEIGHT))))
                         .build()
-                    transformer.start(Composition.Builder(listOf(editedItem)).build(), outputPath)
+                    transformer.start(
+                        Composition.Builder(EditedMediaItemSequence(editedItem)).build(),
+                        outputPath
+                    )
                 } else {
                     transformer.start(MediaItem.fromUri(input), outputPath)
                 }

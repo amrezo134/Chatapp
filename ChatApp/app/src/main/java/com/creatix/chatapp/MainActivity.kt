@@ -28,6 +28,7 @@ import com.creatix.chatapp.navigation.AppNavigation
 import com.creatix.chatapp.services.MyFirebaseMessagingService
 import com.creatix.chatapp.viewmodel.AuthViewModel
 import com.creatix.chatapp.repository.AiChatRepository
+import com.creatix.chatapp.data.local.ChatDatabase
 
 class MainActivity : ComponentActivity() {
 
@@ -69,6 +70,7 @@ class MainActivity : ComponentActivity() {
         MyFirebaseMessagingService.ensureNotificationChannel(applicationContext)
         pendingChatUid.value = intent?.getStringExtra(MyFirebaseMessagingService.EXTRA_OPEN_CHAT_UID)
         AiChatRepository.init(applicationContext)
+        ChatDatabase.init(applicationContext)
 
         // بنحاول نحدّث التوكن فورًا (لو فيه جلسة دخول محفوظة ومسترجعة بالفعل)...
         refreshFcmToken()

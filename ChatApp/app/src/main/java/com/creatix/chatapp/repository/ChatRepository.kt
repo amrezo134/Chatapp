@@ -8,9 +8,12 @@ import com.creatix.chatapp.data.chatIdFor
 import com.creatix.chatapp.data.GroupMessage
 import com.creatix.chatapp.data.GLOBAL_GROUP_ID
 import com.creatix.chatapp.data.ChatGroup
+import com.creatix.chatapp.data.local.ChatDatabase
+import com.creatix.chatapp.data.local.MessageEntity
 import com.creatix.chatapp.services.FcmPushSender
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
@@ -20,7 +23,10 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -32,6 +38,71 @@ import org.json.JSONObject
 class ChatRepository {
 
     private val db = FirebaseFirestore.getInstance()
+
+    // ---------------------------------------------------------------
+    // الكاش المحلي (Room / SQLite): الـ UI بيقرا منه، وFirestore بيحدّثه
+    // ---------------------------------------------------------------
+
+    private fun privateKey(chatId: String) = "chat:$chatId"
+    private fun customGroupKey(groupId: String) = "group:$groupId"
+    private val globalKey = "global"
+
+    /**
+     * بيرجع رسايل الشات من Room مرتبة بالوقت. لقطات Firestore بتتكتب في Room بالترتيب.
+     * لو Room مش متفعّل (ChatDatabase.init ما اتناداش) بنرجع للسلوك القديم مباشرة من Firestore.
+     */
+    private fun <T> observeCachedMessages(
+        chatKey: String,
+        query: Query,
+        fromDoc: (DocumentSnapshot) -> MessageEntity?,
+        toModel: (MessageEntity) -> T
+    ): Flow<List<T>> = channelFlow {
+        val dao = ChatDatabase.dao()
+        val updates = Channel<List<MessageEntity>>(Channel.UNLIMITED)
+        val listener: ListenerRegistration = query.addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                // مع الكاش المحلي مش بنقفل الـ Flow لو النت قطع؛ بنكمل نعرض اللي متخزن
+                if (dao == null) close(error)
+                return@addSnapshotListener
+            }
+            val entities = snapshot?.documents?.mapNotNull(fromDoc) ?: emptyList()
+            if (dao == null) trySend(entities.map(toModel)) else updates.trySend(entities)
+        }
+        if (dao != null) {
+            launch(Dispatchers.IO) {
+                for (entities in updates) {
+                    try { dao.replaceSynced(chatKey, entities) } catch (e: Exception) { e.printStackTrace() }
+                }
+            }
+            launch {
+                dao.observe(chatKey).collect { rows -> send(rows.map(toModel)) }
+            }
+        }
+        awaitClose {
+            listener.remove()
+            updates.close()
+        }
+    }
+
+    private suspend fun cacheInsertPending(entity: MessageEntity) {
+        try { ChatDatabase.dao()?.upsert(entity) } catch (e: Exception) { e.printStackTrace() }
+    }
+
+    private suspend fun cacheMarkSynced(chatKey: String, id: String) {
+        try { ChatDatabase.dao()?.markSynced(chatKey, id) } catch (e: Exception) { e.printStackTrace() }
+    }
+
+    private fun messageFromDoc(key: String): (DocumentSnapshot) -> MessageEntity? = { doc ->
+        doc.toObject(Message::class.java)?.let {
+            MessageEntity.fromMessage(key, it, doc.metadata.hasPendingWrites())
+        }
+    }
+
+    private fun groupMessageFromDoc(key: String): (DocumentSnapshot) -> MessageEntity? = { doc ->
+        doc.toObject(GroupMessage::class.java)?.let {
+            MessageEntity.fromGroupMessage(key, it, doc.metadata.hasPendingWrites())
+        }
+    }
 
     // ---------------------------------------------------------------
     // رفع الملفات على Cloudflare (يستخدمها كل أنواع المرفقات: مستند، صورة، فيديو، صوت، ملصق)
@@ -86,19 +157,12 @@ class ChatRepository {
     }
 
     /** بث لحظي (real-time) للرسائل بتاعة شات معين */
-    fun observeMessages(chatId: String): Flow<List<Message>> = callbackFlow {
-        val listener: ListenerRegistration = db.collection("chats")
-            .document(chatId)
+    fun observeMessages(chatId: String): Flow<List<Message>> {
+        val key = privateKey(chatId)
+        val query = db.collection("chats").document(chatId)
             .collection("messages")
             .orderBy("timestamp", Query.Direction.ASCENDING)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) { close(error); return@addSnapshotListener }
-                val messages = snapshot?.documents
-                    ?.mapNotNull { it.toObject(Message::class.java) }
-                    ?: emptyList()
-                trySend(messages)
-            }
-        awaitClose { listener.remove() }
+        return observeCachedMessages(key, query, messageFromDoc(key)) { it.toMessage() }
     }
 
     suspend fun getCurrentUserName(uid: String): String {
@@ -263,7 +327,9 @@ class ChatRepository {
             replyToSenderName = if (replyTo != null) replyToSenderName else "",
             forwarded = forwarded
         )
+        cacheInsertPending(MessageEntity.fromMessage(privateKey(chatId), message, true))
         docRef.set(message).await()
+        cacheMarkSynced(privateKey(chatId), message.id)
 
         // بعد ما الرسالة اتسجلت، ابعت إشعار push مباشر للمستقبل (بدون سيرفر)
         notifyReceiver(context, senderId, receiverId, previewText)
@@ -460,18 +526,11 @@ class ChatRepository {
     // ---------------------------------------------------------------
 
     /** بث لحظي لرسائل الجروب العام */
-    fun observeGroupMessages(): Flow<List<GroupMessage>> = callbackFlow {
-        val listener = db.collection("groups").document(GLOBAL_GROUP_ID)
+    fun observeGroupMessages(): Flow<List<GroupMessage>> {
+        val query = db.collection("groups").document(GLOBAL_GROUP_ID)
             .collection("messages")
             .orderBy("timestamp", Query.Direction.ASCENDING)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) { close(error); return@addSnapshotListener }
-                val messages = snapshot?.documents
-                    ?.mapNotNull { it.toObject(GroupMessage::class.java) }
-                    ?: emptyList()
-                trySend(messages)
-            }
-        awaitClose { listener.remove() }
+        return observeCachedMessages(globalKey, query, groupMessageFromDoc(globalKey)) { it.toGroupMessage() }
     }
 
     /** إرسال رسالة في الجروب العام */
@@ -510,7 +569,9 @@ class ChatRepository {
             fileType = fileType,
             durationMs = durationMs
         )
+        cacheInsertPending(MessageEntity.fromGroupMessage(globalKey, message, true))
         docRef.set(message).await()
+        cacheMarkSynced(globalKey, message.id)
 
         // بعد ما الرسالة اتسجلت، ابعت إشعار push لكل أعضاء الجروب (كل المستخدمين ما عدا اللي بعت)
         notifyGroupMembers(context, senderId, senderName, previewText)
@@ -661,18 +722,12 @@ class ChatRepository {
     }
 
     /** بث لحظي لرسائل جروب مخصص معين */
-    fun observeCustomGroupMessages(groupId: String): Flow<List<GroupMessage>> = callbackFlow {
-        val listener = db.collection("custom_groups").document(groupId)
+    fun observeCustomGroupMessages(groupId: String): Flow<List<GroupMessage>> {
+        val key = customGroupKey(groupId)
+        val query = db.collection("custom_groups").document(groupId)
             .collection("messages")
             .orderBy("timestamp", Query.Direction.ASCENDING)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) { close(error); return@addSnapshotListener }
-                val messages = snapshot?.documents
-                    ?.mapNotNull { it.toObject(GroupMessage::class.java) }
-                    ?: emptyList()
-                trySend(messages)
-            }
-        awaitClose { listener.remove() }
+        return observeCachedMessages(key, query, groupMessageFromDoc(key)) { it.toGroupMessage() }
     }
 
     /** إرسال رسالة في جروب مخصص */
@@ -715,7 +770,9 @@ class ChatRepository {
             fileType = fileType,
             durationMs = durationMs
         )
+        cacheInsertPending(MessageEntity.fromGroupMessage(customGroupKey(groupId), message, true))
         docRef.set(message).await()
+        cacheMarkSynced(customGroupKey(groupId), message.id)
 
         notifyCustomGroupMembers(context, groupId, senderId, senderName, previewText)
     }

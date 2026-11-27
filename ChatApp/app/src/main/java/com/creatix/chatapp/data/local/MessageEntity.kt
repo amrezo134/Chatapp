@@ -44,8 +44,16 @@ data class MessageEntity(
     val deleted: Boolean,
     val forwarded: Boolean,
     val reactionsJson: String,
-    val pending: Boolean
+    val pending: Boolean,
+    /** وقت السيرفر بالميلي ثانية (من حقل serverTimestamp في Firestore)، أو 0 لو لسه pending أو رسالة قديمة */
+    val serverTimestampMillis: Long,
+    /** true معناها السيرفر ماعندوش الرسالة دي (اتمسحت بعد الاستلام) والكاش المحلي هو النسخة الوحيدة */
+    val serverPruned: Boolean
 ) {
+
+    /** مفتاح الترتيب: وقت السيرفر لو موجود، وإلا وقت التليفون (للرسايل القديمة والـ pending) */
+    fun sortTimestampMillis(): Long = if (serverTimestampMillis > 0L) serverTimestampMillis else timestamp
+
     fun toMessage() = Message(
         id = id, senderId = senderId, receiverId = receiverId, text = text,
         timestamp = timestamp, seen = seen, fileUrl = fileUrl, fileName = fileName,
@@ -71,7 +79,7 @@ data class MessageEntity(
     )
 
     companion object {
-        fun fromMessage(chatKey: String, m: Message, pending: Boolean) = MessageEntity(
+        fun fromMessage(chatKey: String, m: Message, pending: Boolean, serverTimestampMillis: Long = 0L) = MessageEntity(
             chatKey = chatKey, id = m.id, senderId = m.senderId, senderName = "",
             receiverId = m.receiverId, text = m.text, timestamp = m.timestamp, seen = m.seen,
             fileUrl = m.fileUrl, fileName = m.fileName, fileType = m.fileType,
@@ -81,10 +89,11 @@ data class MessageEntity(
             eventTimestamp = m.eventTimestamp, replyToId = m.replyToId,
             replyToText = m.replyToText, replyToSenderName = m.replyToSenderName,
             edited = m.edited, deleted = m.deleted, forwarded = m.forwarded,
-            reactionsJson = mapToJson(m.reactions), pending = pending
+            reactionsJson = mapToJson(m.reactions), pending = pending,
+            serverTimestampMillis = serverTimestampMillis, serverPruned = false
         )
 
-        fun fromGroupMessage(chatKey: String, m: GroupMessage, pending: Boolean) = MessageEntity(
+        fun fromGroupMessage(chatKey: String, m: GroupMessage, pending: Boolean, serverTimestampMillis: Long = 0L) = MessageEntity(
             chatKey = chatKey, id = m.id, senderId = m.senderId, senderName = m.senderName,
             receiverId = m.receiverId, text = m.text, timestamp = m.timestamp, seen = m.seen,
             fileUrl = m.fileUrl, fileName = m.fileName, fileType = m.fileType,
@@ -94,7 +103,8 @@ data class MessageEntity(
             eventTimestamp = m.eventTimestamp, replyToId = m.replyToId,
             replyToText = m.replyToText, replyToSenderName = m.replyToSenderName,
             edited = m.edited, deleted = m.deleted, forwarded = m.forwarded,
-            reactionsJson = mapToJson(m.reactions), pending = pending
+            reactionsJson = mapToJson(m.reactions), pending = pending,
+            serverTimestampMillis = serverTimestampMillis, serverPruned = false
         )
 
         private fun listToJson(list: List<String>): String = JSONArray(list).toString()

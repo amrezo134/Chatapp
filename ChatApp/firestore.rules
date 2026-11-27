@@ -2,6 +2,15 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // إقرار الاستلام: المستلم يقدر يضيف نفسه بس لقايمة deliveredTo (ممنوع يشيل أو يضيف حد تاني)
+    function ackAddsOnlySelf() {
+      let oldAcks = resource.data.get('deliveredTo', []);
+      let newAcks = request.resource.data.get('deliveredTo', []);
+      return newAcks.hasAll(oldAcks)
+        && newAcks.hasOnly(oldAcks.concat([request.auth.uid]))
+        && request.auth.uid in newAcks;
+    }
+
     match /users/{userId} {
       allow read: if request.auth != null;
       allow write: if request.auth != null && request.auth.uid == userId;
@@ -117,11 +126,18 @@ service cloud.firestore {
           request.resource.data.receiverId in
             get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
 
-        allow delete: if false;
+        // وضع "الحذف بعد الاستلام": المستلم يقدر يمسح نسخة السيرفر، بس بعد ما يكون أكد الاستلام بنفسه
+        allow delete: if request.auth != null &&
+          request.auth.uid == resource.data.receiverId &&
+          request.auth.uid in resource.data.get('deliveredTo', []);
         allow update: if request.auth != null && (
           // المستقبل بس يقدر يعلّم الرسالة إنها اتقرت
           (request.auth.uid == resource.data.receiverId &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly(["seen"])) ||
+          // المستلم بس يقدر يأكد إنه استلم الرسالة (بيضيف نفسه بس لـ deliveredTo)
+          (request.auth.uid == resource.data.receiverId &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(["deliveredTo"]) &&
+            ackAddsOnlySelf()) ||
           // صاحب الرسالة بس يقدر يعدّل نصها
           (request.auth.uid == resource.data.senderId &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly(["text", "edited"])) ||

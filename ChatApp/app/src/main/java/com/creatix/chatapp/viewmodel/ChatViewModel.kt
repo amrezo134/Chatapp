@@ -210,7 +210,7 @@ class ChatViewModel(
         viewModelScope.launch {
             repository.ensureChatDocument(myUid, otherUid)
             try {
-                repository.observeMessages(chatId).collect { list ->
+                repository.observeMessages(chatId, myUid).collect { list ->
                     _messages.value = list
                     repository.markMessagesAsSeen(chatId, myUid, list)
                 }

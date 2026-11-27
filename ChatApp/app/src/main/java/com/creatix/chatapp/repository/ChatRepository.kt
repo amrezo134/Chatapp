@@ -2,6 +2,7 @@ package com.creatix.chatapp.repository
 
 import android.content.Context
 import com.creatix.chatapp.R
+import com.creatix.chatapp.config.AppConfig
 import com.creatix.chatapp.data.ChatUser
 import com.creatix.chatapp.data.Message
 import com.creatix.chatapp.data.chatIdFor
@@ -48,10 +49,12 @@ class ChatRepository {
     private val globalKey = "global"
 
     /**
-     * ترتيب زمني تصاعدي مضمون لكل الرسايل مهما كان مصدرها (Firestore أو كاش Room)،
+     * ترتيب زمني تصاعدي مضمون لكل الرسايل مهما كان مصدرها (Firestore أو كاش Room).
+     * مفتاح الترتيب هو وقت السيرفر (serverTimestamp) لو موجود — عشان فرق الساعات بين الأجهزة
+     * ما يبوظش الترتيب — وبنرجع لوقت التليفون للرسايل القديمة واللي لسه pending.
      * ولو رسالتين ليهم نفس الميلي ثانية بنفصل بينهم بالـ id عشان الترتيب يبقى ثابت ومتكررش.
      */
-    private val chronological = compareBy<MessageEntity>({ it.timestamp }, { it.id })
+    private val chronological = compareBy<MessageEntity>({ it.sortTimestampMillis() }, { it.id })
 
     /**
      * بيرجع رسايل الشات من Room مرتبة بالوقت. لقطات Firestore بتتكتب في Room بالترتيب.
@@ -61,6 +64,8 @@ class ChatRepository {
         chatKey: String,
         query: Query,
         fromDoc: (DocumentSnapshot) -> MessageEntity?,
+        keepMissingOnPrune: Boolean = false,
+        onSynced: suspend (List<MessageEntity>) -> Unit = {},
         toModel: (MessageEntity) -> T
     ): Flow<List<T>> = channelFlow {
         val dao = ChatDatabase.dao()
@@ -77,7 +82,11 @@ class ChatRepository {
         if (dao != null) {
             launch(Dispatchers.IO) {
                 for (entities in updates) {
-                    try { dao.replaceSynced(chatKey, entities) } catch (e: Exception) { e.printStackTrace() }
+                    try {
+                        dao.replaceSynced(chatKey, entities, keepMissingOnPrune)
+                        // الكتابة في Room نجحت — ساعتها بس نقدر نأكد الاستلام للسيرفر (لوضع الحذف بعد الاستلام)
+                        try { onSynced(entities) } catch (e: Exception) { e.printStackTrace() }
+                    } catch (e: Exception) { e.printStackTrace() }
                 }
             }
             launch {
@@ -98,15 +107,19 @@ class ChatRepository {
         try { ChatDatabase.dao()?.markSynced(chatKey, id) } catch (e: Exception) { e.printStackTrace() }
     }
 
+    /** وقت السيرفر من المستند، أو 0 لو الكتابة لسه pending أو الحقل مش موجود (رسايل قديمة) */
+    private fun serverTimestampMillis(doc: DocumentSnapshot): Long =
+        doc.getTimestamp("serverTimestamp")?.toDate()?.time ?: 0L
+
     private fun messageFromDoc(key: String): (DocumentSnapshot) -> MessageEntity? = { doc ->
         doc.toObject(Message::class.java)?.let {
-            MessageEntity.fromMessage(key, it, doc.metadata.hasPendingWrites())
+            MessageEntity.fromMessage(key, it, doc.metadata.hasPendingWrites(), serverTimestampMillis(doc))
         }
     }
 
     private fun groupMessageFromDoc(key: String): (DocumentSnapshot) -> MessageEntity? = { doc ->
         doc.toObject(GroupMessage::class.java)?.let {
-            MessageEntity.fromGroupMessage(key, it, doc.metadata.hasPendingWrites())
+            MessageEntity.fromGroupMessage(key, it, doc.metadata.hasPendingWrites(), serverTimestampMillis(doc))
         }
     }
 
@@ -162,13 +175,25 @@ class ChatRepository {
         awaitClose { listener.remove() }
     }
 
-    /** بث لحظي (real-time) للرسائل بتاعة شات معين */
-    fun observeMessages(chatId: String): Flow<List<Message>> {
+    /**
+     * بث لحظي (real-time) للرسائل بتاعة شات معين.
+     * الاستعلام بيفضل مرتب بـ timestamp (وقت التليفون) عشان الرسايل القديمة اللي مفيهاش
+     * serverTimestamp تفضل ظاهرة في النتايج، والترتيب النهائي بيتم محليًا بمفتاح السيرفر.
+     * myUid محتاجينه لوضع "الحذف بعد الاستلام" عشان نعرف الرسايل الجاية لينا.
+     */
+    fun observeMessages(chatId: String, myUid: String): Flow<List<Message>> {
         val key = privateKey(chatId)
         val query = db.collection("chats").document(chatId)
             .collection("messages")
             .orderBy("timestamp", Query.Direction.ASCENDING)
-        return observeCachedMessages(key, query, messageFromDoc(key)) { it.toMessage() }
+        return observeCachedMessages(
+            chatKey = key,
+            query = query,
+            fromDoc = messageFromDoc(key),
+            keepMissingOnPrune = AppConfig.DELETE_AFTER_DELIVERY,
+            onSynced = { entities -> ackAndPruneDelivered(chatId, myUid, entities) },
+            toModel = { it.toMessage() }
+        )
     }
 
     suspend fun getCurrentUserName(uid: String): String {
@@ -464,13 +489,87 @@ class ChatRepository {
         val unseen = messages.filter { it.receiverId == myUid && !it.seen }
         if (unseen.isEmpty()) return
 
-        val batch = db.batch()
-        unseen.forEach { message ->
-            val ref = db.collection("chats").document(chatId)
-                .collection("messages").document(message.id)
-            batch.update(ref, "seen", true)
+        try {
+            val batch = db.batch()
+            unseen.forEach { message ->
+                val ref = db.collection("chats").document(chatId)
+                    .collection("messages").document(message.id)
+                batch.update(ref, "seen", true)
+            }
+            batch.commit().await()
+        } catch (e: Exception) {
+            // في وضع "الحذف بعد الاستلام" ممكن رسالة تكون اتمسحت من السيرفر قبل ما تتعلّم مقروءة — مش مشكلة
+            e.printStackTrace()
         }
-        batch.commit().await()
+    }
+
+    // ---------------------------------------------------------------
+    // حذف الرسايل بعد الاستلام (Delete after delivery)
+    // مطفي افتراضيًا من AppConfig.DELETE_AFTER_DELIVERY لحد ما نبني نظام الباك اب.
+    // الفكرة: المستلم بيأكد الاستلام (deliveredTo) بعد ما الرسالة تتخزن فعلًا في كاش Room
+    // على تليفونه، وبعدها بيمسح نسخة السيرفر — بس لو الطرفين مفعّلين الباك اب، عشان محدش
+    // يفقد رسايله لو تليفونه ضاع. الشاتات الخاصة بس؛ الجروبات (العام والمخصص) مش بتتمسح أصلًا.
+    // ---------------------------------------------------------------
+
+    /** رسايل أكدنا استلامها في الجلسة دي، عشان منكررش كتابة الإقرار مع كل لقطة */
+    private val deliveredAckedIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    /**
+     * هل اليوزر مفعّل الباك اب؟ (users/{uid}.backupEnabled — افتراضيًا لأ)
+     * عند أي خطأ في القراءة بنرجع false — أمان: طالما مش متأكدين إن الباك اب شغال، منمسحش من السيرفر.
+     */
+    suspend fun isBackupEnabled(uid: String): Boolean {
+        return try {
+            db.collection("users").document(uid).get().await().getBoolean("backupEnabled") == true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    /** تفعيل/تعطيل الباك اب لليوزر — المسح بعد الاستلام بيشتغل بس لما الطرفين يكونوا مفعّلينه */
+    suspend fun setBackupEnabled(uid: String, enabled: Boolean) {
+        db.collection("users").document(uid)
+            .set(mapOf("backupEnabled" to enabled), SetOptions.merge())
+            .await()
+    }
+
+    /**
+     * بتتنادى بعد ما لقطة رسايل الشات الخاص تتكتب بنجاح في Room (وده شرط أساسي —
+     * ممنوع نأكد استلام رسالة مش متخزنة محليًا). لكل رسالة جاية لي:
+     * 1) بنكتب إقرار استلام deliveredTo على مستند الرسالة.
+     * 2) بنمسح نسخة السيرفر — بس لو أنا والمرسل الاتنين مفعّلين الباك اب.
+     * لو الإقرار أو المسح فشل، الرسالة بتفضل على السيرفر وبنحاول تاني مع اللقطة الجاية
+     * (أو بعد إعادة تشغيل التطبيق) — أمان أولًا: مسح غلط = فقدان رسالة للأبد.
+     */
+    private suspend fun ackAndPruneDelivered(chatId: String, myUid: String, entities: List<MessageEntity>) {
+        if (!AppConfig.DELETE_AFTER_DELIVERY) return
+        val incoming = entities.filter {
+            it.receiverId == myUid && !it.deleted && it.id !in deliveredAckedIds
+        }
+        if (incoming.isEmpty()) return
+
+        val myBackup = isBackupEnabled(myUid)
+        val backupBySender = mutableMapOf<String, Boolean>()
+
+        for (entity in incoming) {
+            try {
+                val ref = db.collection("chats").document(chatId)
+                    .collection("messages").document(entity.id)
+                // 1) إقرار الاستلام — بيحصل هنا بس، يعني بعد ما الكتابة في Room نجحت
+                ref.update("deliveredTo", com.google.firebase.firestore.FieldValue.arrayUnion(myUid)).await()
+                deliveredAckedIds.add(entity.id)
+
+                // 2) المسح بيتم بس لو الطرفين مفعّلين الباك اب — عشان محدش يفقد الرسالة لو تليفونه ضاع
+                val senderBackup = backupBySender.getOrPut(entity.senderId) { isBackupEnabled(entity.senderId) }
+                if (!myBackup || !senderBackup) continue
+
+                // 3) مسح نسخة السيرفر — النسخ المحلية + الباك اب بتاع الطرفين هي الباقية
+                ref.delete().await()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
     // ---------------------------------------------------------------
     // ميزة "بيكتب دلوقتي..." للجروب العام (ممكن أكتر من شخص يكتبوا مع بعض)

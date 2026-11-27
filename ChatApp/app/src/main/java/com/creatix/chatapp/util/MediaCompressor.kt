@@ -39,7 +39,7 @@ object MediaCompressor {
     private const val VIDEO_BITRATE = 1_500_000
     private const val AUDIO_BITRATE = 64_000
 
-    /** بيصغّر الصورة لو نوعها image/* (غير الجيف). بيرجع (الباتات، الاسم الجديد، النوع الجديد) أو null */
+    /** بيصغّر الصورة لو نوعها صورة (غير الجيف). بيرجع (الباتات، الاسم الجديد، النوع الجديد) أو null */
     fun compressImageIfNeeded(bytes: ByteArray, fileName: String, mimeType: String): Triple<ByteArray, String, String>? {
         if (!mimeType.startsWith("image/") || mimeType == "image/gif") return null
         return try {

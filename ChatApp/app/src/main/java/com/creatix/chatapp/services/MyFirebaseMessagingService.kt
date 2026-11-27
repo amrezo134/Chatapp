@@ -7,9 +7,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
-import android.widget.Toast
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
@@ -78,17 +76,9 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             .update("fcmToken", token)
     }
 
-    /** بتظهر رسالة على الشاشة عشان نقدر نتابع تنفيذ الكود خطوة خطوة من غير Logcat */
-    private fun debugToast(text: String) {
-        Handler(Looper.getMainLooper()).post {
-            Toast.makeText(applicationContext, "DEBUG: $text", Toast.LENGTH_LONG).show()
-        }
-    }
-
     /** لما إشعار يوصل والتطبيق شغال (foreground) أو في الخلفية */
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
-        debugToast("onMessageReceived اتنفذت")
 
         val title = message.notification?.title
             ?: message.data["title"]
@@ -101,13 +91,12 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         try {
             showNotification(title, body, senderUid)
         } catch (e: Exception) {
-            debugToast("استثناء في showNotification: ${e.javaClass.simpleName} - ${e.message}")
+            Log.e("FCM", "showNotification failed: ${e.javaClass.simpleName} - ${e.message}", e)
         }
     }
 
     private fun showNotification(title: String, body: String, senderUid: String) {
         createChannelIfNeeded()
-        debugToast("القناة اتعملت، جاري بناء الإشعار")
 
         // مفتاح تجميع الرسائل: بيستخدم الـ senderUid لو موجود، عشان كل محادثة
         // ليها إشعار واحد بس بيتحدث لما يجيله رسالة جديدة
@@ -157,17 +146,14 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
 
-        val areEnabled = NotificationManagerCompat.from(this).areNotificationsEnabled()
-        debugToast("قبل notify() - الإشعارات مفعّلة على مستوى النظام: $areEnabled")
 
         try {
             NotificationManagerCompat.from(this).notify(notificationId, notification)
-            debugToast("notify() اتنفذت من غير أي استثناء")
         } catch (e: SecurityException) {
             // المستخدم لسه ما ادّاش إذن الإشعارات (أندرويد 13+)
-            debugToast("SecurityException في notify(): ${e.message}")
+Log.w("FCM", "Notification permission not granted: ${e.message}")
         } catch (e: Exception) {
-            debugToast("استثناء تاني في notify(): ${e.javaClass.simpleName} - ${e.message}")
+Log.e("FCM", "notify() failed: ${e.javaClass.simpleName} - ${e.message}", e)
         }
     }
 

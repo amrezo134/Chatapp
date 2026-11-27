@@ -1,6 +1,7 @@
 package com.creatix.chatapp.repository
 
 import android.content.Context
+import android.util.Log
 import com.creatix.chatapp.data.AiChatMessage
 import com.google.firebase.Firebase
 import com.google.firebase.FirebaseApp
@@ -180,6 +181,8 @@ object AiChatRepository {
         try {
             Result.success(askGemini(history, lastUserMsg))
         } catch (e: Exception) {
+            // سجل صامت (logcat) بسبب فشل Gemini عشان نقدر نشخص من غير ما نزعج المستخدم
+            Log.e("AiChat", "Gemini failed (${e.javaClass.simpleName}): ${e.message}", e)
             val name = e.javaClass.simpleName
             val msg = e.message.orEmpty()
             val quotaHit = name.contains("quota", true) ||

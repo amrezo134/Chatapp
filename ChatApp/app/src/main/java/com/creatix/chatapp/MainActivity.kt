@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -56,26 +57,18 @@ class MainActivity : ComponentActivity() {
      * لو الكود اتنفذ قبل ما جلسة تسجيل الدخول تسترجع نفسها.
      */
     private fun refreshFcmToken() {
-        val userId = FirebaseAuth.getInstance().currentUser?.uid
-        if (userId == null) {
-            Toast.makeText(this, "DEBUG: مفيش currentUser لسه، هنستنى AuthStateListener", Toast.LENGTH_LONG).show()
-            return
-        }
+        val userId = FirebaseAuth.getInstance().currentUser?.uid ?: return
         FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
             if (task.isSuccessful) {
                 val token = task.result
-                Toast.makeText(this, "DEBUG: هيتحدث توكن لليوزر $userId: ${token.take(12)}...", Toast.LENGTH_LONG).show()
                 FirebaseFirestore.getInstance().collection("users")
                     .document(userId)
                     .update("fcmToken", token)
-                    .addOnSuccessListener {
-                        Toast.makeText(this, "DEBUG: التوكن اتحفظ في Firestore بنجاح", Toast.LENGTH_LONG).show()
-                    }
                     .addOnFailureListener { e ->
-                        Toast.makeText(this, "DEBUG: فشل حفظ التوكن: ${e.message}", Toast.LENGTH_LONG).show()
+                        Log.w("MainActivity", "Failed to save FCM token", e)
                     }
             } else {
-                Toast.makeText(this, "DEBUG: فشل جلب التوكن: ${task.exception?.message}", Toast.LENGTH_LONG).show()
+                Log.w("MainActivity", "Failed to fetch FCM token", task.exception)
             }
         }
     }

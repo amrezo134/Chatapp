@@ -48,6 +48,12 @@ class ChatRepository {
     private val globalKey = "global"
 
     /**
+     * ترتيب زمني تصاعدي مضمون لكل الرسايل مهما كان مصدرها (Firestore أو كاش Room)،
+     * ولو رسالتين ليهم نفس الميلي ثانية بنفصل بينهم بالـ id عشان الترتيب يبقى ثابت ومتكررش.
+     */
+    private val chronological = compareBy<MessageEntity>({ it.timestamp }, { it.id })
+
+    /**
      * بيرجع رسايل الشات من Room مرتبة بالوقت. لقطات Firestore بتتكتب في Room بالترتيب.
      * لو Room مش متفعّل (ChatDatabase.init ما اتناداش) بنرجع للسلوك القديم مباشرة من Firestore.
      */
@@ -66,7 +72,7 @@ class ChatRepository {
                 return@addSnapshotListener
             }
             val entities = snapshot?.documents?.mapNotNull(fromDoc) ?: emptyList()
-            if (dao == null) trySend(entities.map(toModel)) else updates.trySend(entities)
+            if (dao == null) trySend(entities.sortedWith(chronological).map(toModel)) else updates.trySend(entities)
         }
         if (dao != null) {
             launch(Dispatchers.IO) {
@@ -75,7 +81,7 @@ class ChatRepository {
                 }
             }
             launch {
-                dao.observe(chatKey).collect { rows -> send(rows.map(toModel)) }
+                dao.observe(chatKey).collect { rows -> send(rows.sortedWith(chronological).map(toModel)) }
             }
         }
         awaitClose {

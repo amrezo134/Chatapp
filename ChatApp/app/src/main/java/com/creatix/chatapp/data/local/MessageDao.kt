@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.Flow
 abstract class MessageDao {
 
     /** الرسايل مرتبة بالوقت، والـ UI بيقرا منها هي بس */
-    @Query("SELECT * FROM cached_messages WHERE chatKey = :chatKey ORDER BY timestamp ASC")
+    @Query("SELECT * FROM cached_messages WHERE chatKey = :chatKey ORDER BY timestamp ASC, id ASC")
     abstract fun observe(chatKey: String): Flow<List<MessageEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

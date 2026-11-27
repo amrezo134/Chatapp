@@ -57,10 +57,10 @@ class ChatViewModel(
     }
 
     /** بيرفع صورة اخترتها من التليفون ويحدّث بيها صورة البروفايل بتاعتي */
-    fun updateMyPhoto(uid: String, bytes: ByteArray, fileName: String, mimeType: String) {
+    fun updateMyPhoto(context: Context, uid: String, bytes: ByteArray, fileName: String, mimeType: String) {
         viewModelScope.launch {
             try {
-                val url = repository.uploadFileToCloudflare(bytes, fileName, mimeType)
+                val url = repository.uploadFileToCloudflare(context.applicationContext, bytes, fileName, mimeType)
                 repository.updateUserPhoto(uid, url)
                 _myProfile.value = _myProfile.value?.copy(photoUrl = url) ?: repository.getCurrentUser(uid)
             } catch (e: Exception) {
@@ -252,8 +252,8 @@ class ChatViewModel(
     }
 
     /** بترفع بايتات ملف على Cloudflare وترجع رابطه - بتستخدمها الشاشة قبل ما تبعت رسالة فيها مرفق */
-    suspend fun uploadFile(bytes: ByteArray, fileName: String, mimeType: String): String =
-        repository.uploadFileToCloudflare(bytes, fileName, mimeType)
+    suspend fun uploadFile(context: Context, bytes: ByteArray, fileName: String, mimeType: String): String =
+        repository.uploadFileToCloudflare(context.applicationContext, bytes, fileName, mimeType)
 
     /** إرسال رسالة "مشاركة جهة اتصال" */
     fun sendContactMessage(context: Context, senderId: String, otherUid: String, contactName: String, contactPhone: String) {
@@ -641,10 +641,10 @@ class ChatViewModel(
     }
 
     /** بيرفع صورة جديدة للجروب ويحدّثها (مشرفين بس، الـ Firestore rules بترفض غير كده) */
-    fun updateGroupPhoto(groupId: String, bytes: ByteArray, fileName: String, mimeType: String) {
+    fun updateGroupPhoto(context: Context, groupId: String, bytes: ByteArray, fileName: String, mimeType: String) {
         viewModelScope.launch {
             try {
-                val url = repository.uploadFileToCloudflare(bytes, fileName, mimeType)
+                val url = repository.uploadFileToCloudflare(context.applicationContext, bytes, fileName, mimeType)
                 repository.updateCustomGroupPhoto(groupId, url)
             } catch (e: Exception) {
                 _groupInfoError.value = e.message ?: "فشل تحديث صورة الجروب"

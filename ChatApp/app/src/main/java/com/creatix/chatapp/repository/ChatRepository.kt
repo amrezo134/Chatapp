@@ -12,6 +12,7 @@ import com.creatix.chatapp.data.ChatGroup
 import com.creatix.chatapp.data.local.ChatDatabase
 import com.creatix.chatapp.data.local.MessageEntity
 import com.creatix.chatapp.services.FcmPushSender
+import com.creatix.chatapp.util.MediaCompressor
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.DocumentSnapshot
@@ -133,6 +134,7 @@ class ChatRepository {
 
     /** بيرفع الملف على الـ Worker وبيرجع رابطه العام. بيرمي Exception لو فشل الرفع أو الحجم أكبر من 20 ميجا. */
     suspend fun uploadFileToCloudflare(
+        context: Context,
         bytes: ByteArray,
         fileName: String,
         mimeType: String
@@ -141,15 +143,23 @@ class ChatRepository {
             throw Exception("حجم الملف أكبر من 20 ميجا")
         }
 
+        // ضغط المرفق قبل الرفع (صور/فيديو/صوت) — لو الضغط فشل أو ما وفّرش حاجة بنرفع الأصلي
+        val compressed = MediaCompressor.compressImageIfNeeded(bytes, fileName, mimeType)
+            ?: MediaCompressor.transcodeVideoIfNeeded(context, bytes, fileName, mimeType)
+            ?: MediaCompressor.transcodeAudioIfNeeded(context, bytes, fileName, mimeType)
+        val finalBytes = compressed?.first ?: bytes
+        val finalName = compressed?.second ?: fileName
+        val finalMime = compressed?.third ?: mimeType
+
         val idToken = FirebaseAuth.getInstance().currentUser
             ?.getIdToken(false)?.await()?.token ?: ""
 
-        val requestBody = bytes.toRequestBody(mimeType.toMediaTypeOrNull())
+        val requestBody = finalBytes.toRequestBody(finalMime.toMediaTypeOrNull())
         val request = Request.Builder()
             .url("$uploadApiBase/upload")
             .addHeader("Authorization", "Bearer $idToken")
-            .addHeader("X-File-Name", fileName)
-            .addHeader("X-File-Type", mimeType)
+            .addHeader("X-File-Name", finalName)
+            .addHeader("X-File-Type", finalMime)
             .post(requestBody)
             .build()
 

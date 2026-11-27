@@ -78,7 +78,7 @@ fun RegisterScreen(
             val mime = context.contentResolver.getType(uri) ?: "image/jpeg"
             if (bytes != null) {
                 try {
-                    photoUrl = chatViewModel.uploadFile(bytes, "profile.${mime.substringAfterLast('/')}", mime)
+                    photoUrl = chatViewModel.uploadFile(context, bytes, "profile.${mime.substringAfterLast('/')}", mime)
                 } catch (_: Exception) {
                     // لو الرفع فشل، هيفضل من غير صورة ويقدر يحاول تاني
                 }

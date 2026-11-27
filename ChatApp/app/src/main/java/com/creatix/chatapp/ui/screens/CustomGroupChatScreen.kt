@@ -105,7 +105,7 @@ fun CustomGroupChatScreen(
         uploadingCount++
         coroutineScope.launch {
             try {
-                val url = chatViewModel.uploadFile(bytes, fileName, mimeType)
+                val url = chatViewModel.uploadFile(context, bytes, fileName, mimeType)
                 chatViewModel.sendCustomGroupMessage(
                     context, group.id, myUid, myName, "",
                     fileUrl = url,
@@ -177,6 +177,8 @@ fun CustomGroupChatScreen(
                 setAudioSource(MediaRecorder.AudioSource.MIC)
                 setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                setAudioEncodingBitRate(48000)
+                setAudioSamplingRate(44100)
                 setOutputFile(file.absolutePath)
                 prepare()
                 start()
@@ -365,6 +367,8 @@ fun CustomGroupChatScreen(
                                         setAudioSource(MediaRecorder.AudioSource.MIC)
                                         setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                                         setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                                        setAudioEncodingBitRate(48000)
+                                        setAudioSamplingRate(44100)
                                         setOutputFile(file.absolutePath)
                                         prepare()
                                         start()
@@ -522,6 +526,8 @@ fun CustomGroupChatScreen(
                                 setAudioSource(MediaRecorder.AudioSource.MIC)
                                 setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                                setAudioEncodingBitRate(48000)
+                                setAudioSamplingRate(44100)
                                 setOutputFile(file.absolutePath)
                                 prepare()
                                 start()

@@ -127,7 +127,7 @@ fun ChatScreen(
         uploadingCount++
         coroutineScope.launch {
             try {
-                val url = chatViewModel.uploadFile(bytes, fileName, mimeType)
+                val url = chatViewModel.uploadFile(context, bytes, fileName, mimeType)
                 chatViewModel.sendMessage(
                     context = context,
                     senderId = myUid,
@@ -228,6 +228,8 @@ fun ChatScreen(
                 setAudioSource(MediaRecorder.AudioSource.MIC)
                 setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                setAudioEncodingBitRate(48000)
+                setAudioSamplingRate(44100)
                 setOutputFile(file.absolutePath)
                 prepare()
                 start()
@@ -540,6 +542,8 @@ fun ChatScreen(
                                         setAudioSource(MediaRecorder.AudioSource.MIC)
                                         setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                                         setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                                        setAudioEncodingBitRate(48000)
+                                        setAudioSamplingRate(44100)
                                         setOutputFile(file.absolutePath)
                                         prepare()
                                         start()
@@ -734,6 +738,8 @@ fun ChatScreen(
                                 setAudioSource(MediaRecorder.AudioSource.MIC)
                                 setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                                setAudioEncodingBitRate(48000)
+                                setAudioSamplingRate(44100)
                                 setOutputFile(file.absolutePath)
                                 prepare()
                                 start()

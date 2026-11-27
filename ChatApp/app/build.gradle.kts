@@ -80,6 +80,9 @@ dependencies {
     // Media3 (لتشغيل الفيديو جوه التطبيق)
     implementation("androidx.media3:media3-exoplayer:1.4.1")
     implementation("androidx.media3:media3-ui:1.4.1")
+    // Media3 Transformer (ضغط الفيديو والصوت على الجهاز قبل الرفع)
+    implementation("androidx.media3:media3-transformer:1.4.1")
+    implementation("androidx.media3:media3-effect:1.4.1")
 }
 configurations.all {
     resolutionStrategy {

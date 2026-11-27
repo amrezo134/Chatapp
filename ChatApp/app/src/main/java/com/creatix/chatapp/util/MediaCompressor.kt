@@ -13,7 +13,7 @@ import androidx.media3.transformer.DefaultEncoderFactory
 import androidx.media3.transformer.Effects
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
-import androidx.media3.transformer.AudioEncoderSettings
+import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
 import kotlinx.coroutines.Dispatchers
@@ -37,7 +37,6 @@ object MediaCompressor {
     private const val IMAGE_QUALITY = 75
     private const val VIDEO_MAX_HEIGHT = 720
     private const val VIDEO_BITRATE = 1_500_000
-    private const val AUDIO_BITRATE = 64_000
 
     /** بيصغّر الصورة لو نوعها صورة (غير الجيف). بيرجع (الباتات، الاسم الجديد، النوع الجديد) أو null */
     fun compressImageIfNeeded(bytes: ByteArray, fileName: String, mimeType: String): Triple<ByteArray, String, String>? {
@@ -130,9 +129,6 @@ object MediaCompressor {
                 .setRequestedVideoEncoderSettings(
                     VideoEncoderSettings.Builder().setBitrate(VIDEO_BITRATE).build()
                 )
-                .setRequestedAudioEncoderSettings(
-                    AudioEncoderSettings.Builder().setBitrate(AUDIO_BITRATE).build()
-                )
                 .build()
             val builder = Transformer.Builder(context)
                 .setEncoderFactory(encoderFactory)
@@ -148,17 +144,20 @@ object MediaCompressor {
                         if (cont.isActive) cont.resume(false)
                     }
                 })
-            if (isVideo) {
-                builder
-                    .setVideoMimeType(MimeTypes.VIDEO_H264)
-                    .setEffects(Effects(emptyList(), listOf(Presentation.createForHeight(VIDEO_MAX_HEIGHT))))
-            } else {
-                builder.setAudioMimeType(MimeTypes.AUDIO_AAC)
-            }
+            if (isVideo) builder.setVideoMimeType(MimeTypes.VIDEO_H264)
+            else builder.setAudioMimeType(MimeTypes.AUDIO_AAC)
             val transformer = builder.build()
             cont.invokeOnCancellation { transformer.cancel() }
             try {
-                transformer.start(MediaItem.fromUri(input), outputPath)
+                if (isVideo) {
+                    // تأثيرات الفيديو (تحجيم لـ 720p) بتتحط على الـ EditedMediaItem مش على الـ Transformer
+                    val editedItem = EditedMediaItem.Builder(MediaItem.fromUri(input))
+                        .setEffects(Effects(emptyList(), listOf(Presentation.createForHeight(VIDEO_MAX_HEIGHT))))
+                        .build()
+                    transformer.start(Composition.Builder(listOf(editedItem)).build(), outputPath)
+                } else {
+                    transformer.start(MediaItem.fromUri(input), outputPath)
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
                 if (cont.isActive) cont.resume(false)

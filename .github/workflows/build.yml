@@ -30,7 +30,18 @@ jobs:
         run: |
           mkdir -p ChatApp/app/src/main/res/raw
           echo "$FCM_SERVICE_ACCOUNT_JSON" | base64 -d > ChatApp/app/src/main/res/raw/service_account.json
-          
+
+      - name: Decode release keystore (optional - keeps APK signature fixed across builds)
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
+            echo "$RELEASE_KEYSTORE_BASE64" | tr -d ' \r\n' | base64 -d > ChatApp/app/release.keystore
+            echo "Release keystore found - CI APK will be signed with the fixed key"
+          else
+            echo "No RELEASE_KEYSTORE_BASE64 secret - falling back to the auto debug key"
+          fi
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -38,6 +49,10 @@ jobs:
 
       - name: Build Debug APK
         working-directory: ChatApp
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: gradle assembleDebug
 
       - name: Upload APK

@@ -507,8 +507,9 @@ class ChatRepository {
     // حذف الرسايل بعد الاستلام (Delete after delivery)
     // مطفي افتراضيًا من AppConfig.DELETE_AFTER_DELIVERY لحد ما نبني نظام الباك اب.
     // الفكرة: المستلم بيأكد الاستلام (deliveredTo) بعد ما الرسالة تتخزن فعلًا في كاش Room
-    // على تليفونه، وبعدها بيمسح نسخة السيرفر — بس لو الطرفين مفعّلين الباك اب، عشان محدش
-    // يفقد رسايله لو تليفونه ضاع. الشاتات الخاصة بس؛ الجروبات (العام والمخصص) مش بتتمسح أصلًا.
+    // على تليفونه، وبعدها بيمسح نسخة السيرفر فورًا — المسح إجباري عشان السيرفر ميتمليش،
+    // وحماية الرسايل من الضياع جاية من باك اب Google Drive (مفعّل افتراضيًا)، مش من شرط هنا.
+    // الشاتات الخاصة بس؛ الجروبات (العام والمخصص) مش بتتمسح أصلًا في الوضع ده.
     // ---------------------------------------------------------------
 
     /** رسايل أكدنا استلامها في الجلسة دي، عشان منكررش كتابة الإقرار مع كل لقطة */
@@ -527,7 +528,7 @@ class ChatRepository {
         }
     }
 
-    /** تفعيل/تعطيل الباك اب لليوزر — المسح بعد الاستلام بيشتغل بس لما الطرفين يكونوا مفعّلينه */
+    /** تفعيل/تعطيل باك اب Google Drive لليوزر — مستقل عن وضع الحذف بعد الاستلام */
     suspend fun setBackupEnabled(uid: String, enabled: Boolean) {
         db.collection("users").document(uid)
             .set(mapOf("backupEnabled" to enabled), SetOptions.merge())
@@ -538,7 +539,7 @@ class ChatRepository {
      * بتتنادى بعد ما لقطة رسايل الشات الخاص تتكتب بنجاح في Room (وده شرط أساسي —
      * ممنوع نأكد استلام رسالة مش متخزنة محليًا). لكل رسالة جاية لي:
      * 1) بنكتب إقرار استلام deliveredTo على مستند الرسالة.
-     * 2) بنمسح نسخة السيرفر — بس لو أنا والمرسل الاتنين مفعّلين الباك اب.
+     * 2) بنمسح نسخة السيرفر فورًا (المسح إجباري).
      * لو الإقرار أو المسح فشل، الرسالة بتفضل على السيرفر وبنحاول تاني مع اللقطة الجاية
      * (أو بعد إعادة تشغيل التطبيق) — أمان أولًا: مسح غلط = فقدان رسالة للأبد.
      */
@@ -549,9 +550,6 @@ class ChatRepository {
         }
         if (incoming.isEmpty()) return
 
-        val myBackup = isBackupEnabled(myUid)
-        val backupBySender = mutableMapOf<String, Boolean>()
-
         for (entity in incoming) {
             try {
                 val ref = db.collection("chats").document(chatId)
@@ -560,11 +558,7 @@ class ChatRepository {
                 ref.update("deliveredTo", com.google.firebase.firestore.FieldValue.arrayUnion(myUid)).await()
                 deliveredAckedIds.add(entity.id)
 
-                // 2) المسح بيتم بس لو الطرفين مفعّلين الباك اب — عشان محدش يفقد الرسالة لو تليفونه ضاع
-                val senderBackup = backupBySender.getOrPut(entity.senderId) { isBackupEnabled(entity.senderId) }
-                if (!myBackup || !senderBackup) continue
-
-                // 3) مسح نسخة السيرفر — النسخ المحلية + الباك اب بتاع الطرفين هي الباقية
+                // 2) مسح نسخة السيرفر — النسخة المحلية عند الطرفين هي الباقية (والباك اب لو مفعّل)
                 ref.delete().await()
             } catch (e: Exception) {
                 e.printStackTrace()

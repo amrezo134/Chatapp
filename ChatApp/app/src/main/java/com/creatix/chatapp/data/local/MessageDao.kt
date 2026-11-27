@@ -20,6 +20,13 @@ abstract class MessageDao {
     )
     abstract fun observe(chatKey: String): Flow<List<MessageEntity>>
 
+    @Query("SELECT COUNT(*) FROM cached_messages")
+    abstract suspend fun count(): Int
+
+    /** كل الرسايل المتخزنة محليًا — بتستخدمها النسخة الاحتياطية على Google Drive */
+    @Query("SELECT * FROM cached_messages")
+    abstract suspend fun getAll(): List<MessageEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsert(message: MessageEntity)
 

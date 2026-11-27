@@ -107,6 +107,41 @@ data class MessageEntity(
             serverTimestampMillis = serverTimestampMillis, serverPruned = false
         )
 
+        /** تسلسل/فك تسلسل JSON — بتستخدمها النسخة الاحتياطية على Google Drive */
+        fun toJson(e: MessageEntity): JSONObject {
+            val o = JSONObject()
+            o.put("chatKey", e.chatKey); o.put("id", e.id); o.put("senderId", e.senderId)
+            o.put("senderName", e.senderName); o.put("receiverId", e.receiverId); o.put("text", e.text)
+            o.put("timestamp", e.timestamp); o.put("seen", e.seen); o.put("fileUrl", e.fileUrl)
+            o.put("fileName", e.fileName); o.put("fileType", e.fileType); o.put("durationMs", e.durationMs)
+            o.put("contactName", e.contactName); o.put("contactPhone", e.contactPhone)
+            o.put("pollQuestion", e.pollQuestion); o.put("pollOptionsJson", e.pollOptionsJson)
+            o.put("pollVotesJson", e.pollVotesJson); o.put("eventTitle", e.eventTitle)
+            o.put("eventTimestamp", e.eventTimestamp); o.put("replyToId", e.replyToId)
+            o.put("replyToText", e.replyToText); o.put("replyToSenderName", e.replyToSenderName)
+            o.put("edited", e.edited); o.put("deleted", e.deleted); o.put("forwarded", e.forwarded)
+            o.put("reactionsJson", e.reactionsJson); o.put("pending", e.pending)
+            o.put("serverTimestampMillis", e.serverTimestampMillis); o.put("serverPruned", e.serverPruned)
+            return o
+        }
+
+        fun fromJson(o: JSONObject): MessageEntity = MessageEntity(
+            chatKey = o.getString("chatKey"), id = o.getString("id"), senderId = o.getString("senderId"),
+            senderName = o.optString("senderName"), receiverId = o.optString("receiverId"),
+            text = o.optString("text"), timestamp = o.optLong("timestamp"), seen = o.optBoolean("seen"),
+            fileUrl = o.optString("fileUrl"), fileName = o.optString("fileName"),
+            fileType = o.optString("fileType"), durationMs = o.optLong("durationMs"),
+            contactName = o.optString("contactName"), contactPhone = o.optString("contactPhone"),
+            pollQuestion = o.optString("pollQuestion"), pollOptionsJson = o.optString("pollOptionsJson", "[]"),
+            pollVotesJson = o.optString("pollVotesJson", "{}"), eventTitle = o.optString("eventTitle"),
+            eventTimestamp = o.optLong("eventTimestamp"), replyToId = o.optString("replyToId"),
+            replyToText = o.optString("replyToText"), replyToSenderName = o.optString("replyToSenderName"),
+            edited = o.optBoolean("edited"), deleted = o.optBoolean("deleted"),
+            forwarded = o.optBoolean("forwarded"), reactionsJson = o.optString("reactionsJson", "{}"),
+            pending = o.optBoolean("pending"), serverTimestampMillis = o.optLong("serverTimestampMillis"),
+            serverPruned = o.optBoolean("serverPruned")
+        )
+
         private fun listToJson(list: List<String>): String = JSONArray(list).toString()
 
         private fun mapToJson(map: Map<String, *>): String {

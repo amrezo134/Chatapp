@@ -29,7 +29,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.creatix.chatapp.data.backup.DriveBackupManager
+import com.creatix.chatapp.repository.ChatRepository
 import com.creatix.chatapp.ui.theme.ChatAppBrandGradient
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.common.api.ApiException
 import com.creatix.chatapp.viewmodel.AuthViewModel
 import com.creatix.chatapp.viewmodel.ChatViewModel
 import kotlinx.coroutines.Dispatchers
@@ -174,7 +178,112 @@ fun ProfileScreen(
                 style = MaterialTheme.typography.headlineSmall
             )
 
-            Spacer(Modifier.height(40.dp))
+            Spacer(Modifier.height(24.dp))
+
+            // ---- بطاقة النسخ الاحتياطي (Google Drive) ----
+            var backupEnabled by remember { mutableStateOf(false) }
+            var backupBusy by remember { mutableStateOf(false) }
+            var lastBackupAt by remember { mutableStateOf(DriveBackupManager.lastBackupAt(context)) }
+            var backupMessage by remember { mutableStateOf<String?>(null) }
+            val chatRepository = remember { ChatRepository() }
+
+            LaunchedEffect(myUid) { backupEnabled = chatRepository.isBackupEnabled(myUid) }
+
+            val driveSignInLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.StartActivityForResult()
+            ) { result ->
+                val account = try {
+                    GoogleSignIn.getSignedInAccountFromIntent(result.data).getResult(ApiException::class.java)
+                } catch (e: ApiException) {
+                    e.printStackTrace()
+                    null
+                }
+                if (account != null) {
+                    coroutineScope.launch {
+                        try { chatRepository.setBackupEnabled(myUid, true) } catch (e: Exception) { e.printStackTrace() }
+                        backupEnabled = true
+                        backupBusy = true
+                        backupMessage = try {
+                            val n = DriveBackupManager.backupNow(context, myUid)
+                            lastBackupAt = DriveBackupManager.lastBackupAt(context)
+                            "اتعملت نسخة من $n رسالة"
+                        } catch (e: Exception) {
+                            "فشل النسخ: ${e.message}"
+                        }
+                        backupBusy = false
+                    }
+                }
+            }
+
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "النسخ الاحتياطي (Google Drive)",
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Switch(checked = backupEnabled, onCheckedChange = { want ->
+                            if (want && DriveBackupManager.signedInAccount(context) == null) {
+                                val client = GoogleSignIn.getClient(context, DriveBackupManager.signInOptions())
+                                driveSignInLauncher.launch(client.signInIntent)
+                            } else {
+                                backupEnabled = want
+                                coroutineScope.launch {
+                                    try { chatRepository.setBackupEnabled(myUid, want) } catch (e: Exception) { e.printStackTrace() }
+                                }
+                            }
+                        })
+                    }
+                    Text(
+                        "نسخة من رسايلك في مجلد مخفي في حسابك على Google Drive، بترجعها لو التليفون ضاع أو اتفرمت.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    if (lastBackupAt > 0) {
+                        Text(
+                            "آخر نسخة: " + android.text.format.DateFormat.format("yyyy-MM-dd hh:mm a", lastBackupAt),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    backupMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    Spacer(Modifier.height(4.dp))
+                    Row {
+                        TextButton(
+                            enabled = !backupBusy && backupEnabled,
+                            onClick = {
+                                coroutineScope.launch {
+                                    backupBusy = true
+                                    backupMessage = try {
+                                        val n = DriveBackupManager.backupNow(context, myUid)
+                                        lastBackupAt = DriveBackupManager.lastBackupAt(context)
+                                        "اتعملت نسخة من $n رسالة"
+                                    } catch (e: Exception) {
+                                        "فشل النسخ: ${e.message}"
+                                    }
+                                    backupBusy = false
+                                }
+                            }
+                        ) { Text(if (backupBusy) "جاري النسخ..." else "انسخ الآن") }
+                        TextButton(
+                            enabled = !backupBusy && DriveBackupManager.signedInAccount(context) != null,
+                            onClick = {
+                                coroutineScope.launch {
+                                    backupBusy = true
+                                    backupMessage = try {
+                                        val n = DriveBackupManager.restoreNow(context)
+                                        if (n == null) "مفيش نسخة احتياطية على Drive" else "اتسترجعت $n رسالة"
+                                    } catch (e: Exception) {
+                                        "فشل الاسترجاع: ${e.message}"
+                                    }
+                                    backupBusy = false
+                                }
+                            }
+                        ) { Text("استرجاع") }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
 
             Button(
                 onClick = {

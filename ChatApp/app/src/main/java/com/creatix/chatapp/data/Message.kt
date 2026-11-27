@@ -1,5 +1,8 @@
 package com.creatix.chatapp.data
 
+import com.google.firebase.Timestamp
+import com.google.firebase.firestore.ServerTimestamp
+
 data class Message(
     val id: String = "",
     val senderId: String = "",
@@ -24,7 +27,15 @@ data class Message(
     val edited: Boolean = false,
     val deleted: Boolean = false,
     val forwarded: Boolean = false,
-    val reactions: Map<String, String> = emptyMap() // userId -> emoji
+    val reactions: Map<String, String> = emptyMap(), // userId -> emoji
+
+    /**
+     * وقت السيرفر لحظة تسجيل الرسالة — بيتكتب من Firestore نفسه مش من التليفون، وبنستخدمه
+     * في ترتيب الرسايل بس عشان فرق الساعات بين الأجهزة ما يبوظش الترتيب. العرض على الشاشة
+     * بيفضل بوقت التليفون (timestamp). بيبقى null في الرسايل القديمة ولو الكتابة لسه pending.
+     */
+    @get:ServerTimestamp
+    val serverTimestamp: Timestamp? = null
 )
 
 fun chatIdFor(uidA: String, uidB: String): String {

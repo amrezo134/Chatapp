@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.gms.google-services")
+    id("com.google.devtools.ksp")
 }
 
 android {
@@ -60,9 +61,19 @@ dependencies {
     implementation("com.google.firebase:firebase-storage-ktx")
     implementation("com.google.firebase:firebase-database-ktx")
 
+    // Google Sign-In (تسجيل حساب جوجل لصلاحية النسخ الاحتياطي على Drive)
+    implementation("com.google.android.gms:play-services-auth:20.7.0")
+
     // Coroutines
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
+    // Firebase AI Logic (Gemini Developer API) — مساعد Gemini في شاشة الـ AI
+    implementation("com.google.firebase:firebase-ai:16.0.0")
+
+    // Room (SQLite) - الكاش المحلي للرسايل
+    implementation("androidx.room:room-runtime:2.6.1")
+    implementation("androidx.room:room-ktx:2.6.1")
+    ksp("androidx.room:room-compiler:2.6.1")
 
     // Coil
     implementation("io.coil-kt:coil-compose:2.6.0")
@@ -71,6 +82,9 @@ dependencies {
     // Media3 (لتشغيل الفيديو جوه التطبيق)
     implementation("androidx.media3:media3-exoplayer:1.4.1")
     implementation("androidx.media3:media3-ui:1.4.1")
+    // Media3 Transformer (ضغط الفيديو والصوت على الجهاز قبل الرفع)
+    implementation("androidx.media3:media3-transformer:1.4.1")
+    implementation("androidx.media3:media3-effect:1.4.1")
 }
 configurations.all {
     resolutionStrategy {

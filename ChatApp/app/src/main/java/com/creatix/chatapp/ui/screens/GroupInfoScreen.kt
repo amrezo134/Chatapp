@@ -99,7 +99,7 @@ fun GroupInfoScreen(
             val bytes = withContext(Dispatchers.IO) { context.contentResolver.openInputStream(uri)?.readBytes() }
             val mime = context.contentResolver.getType(uri) ?: "image/jpeg"
             if (bytes != null) {
-                chatViewModel.updateGroupPhoto(group.id, bytes, "group.${mime.substringAfterLast('/')}", mime)
+                chatViewModel.updateGroupPhoto(context, group.id, bytes, "group.${mime.substringAfterLast('/')}", mime)
             }
             isUploadingPhoto = false
         }

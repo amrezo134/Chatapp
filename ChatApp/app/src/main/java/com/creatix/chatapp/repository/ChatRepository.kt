@@ -2,15 +2,20 @@ package com.creatix.chatapp.repository
 
 import android.content.Context
 import com.creatix.chatapp.R
+import com.creatix.chatapp.config.AppConfig
 import com.creatix.chatapp.data.ChatUser
 import com.creatix.chatapp.data.Message
 import com.creatix.chatapp.data.chatIdFor
 import com.creatix.chatapp.data.GroupMessage
 import com.creatix.chatapp.data.GLOBAL_GROUP_ID
 import com.creatix.chatapp.data.ChatGroup
+import com.creatix.chatapp.data.local.ChatDatabase
+import com.creatix.chatapp.data.local.MessageEntity
 import com.creatix.chatapp.services.FcmPushSender
+import com.creatix.chatapp.util.MediaCompressor
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
@@ -20,7 +25,10 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -34,6 +42,89 @@ class ChatRepository {
     private val db = FirebaseFirestore.getInstance()
 
     // ---------------------------------------------------------------
+    // الكاش المحلي (Room / SQLite): الـ UI بيقرا منه، وFirestore بيحدّثه
+    // ---------------------------------------------------------------
+
+    private fun privateKey(chatId: String) = "chat:$chatId"
+    private fun customGroupKey(groupId: String) = "group:$groupId"
+    private val globalKey = "global"
+
+    /**
+     * ترتيب زمني تصاعدي مضمون لكل الرسايل مهما كان مصدرها (Firestore أو كاش Room).
+     * مفتاح الترتيب هو وقت السيرفر (serverTimestamp) لو موجود — عشان فرق الساعات بين الأجهزة
+     * ما يبوظش الترتيب — وبنرجع لوقت التليفون للرسايل القديمة واللي لسه pending.
+     * ولو رسالتين ليهم نفس الميلي ثانية بنفصل بينهم بالـ id عشان الترتيب يبقى ثابت ومتكررش.
+     */
+    private val chronological = compareBy<MessageEntity>({ it.sortTimestampMillis() }, { it.id })
+
+    /**
+     * بيرجع رسايل الشات من Room مرتبة بالوقت. لقطات Firestore بتتكتب في Room بالترتيب.
+     * لو Room مش متفعّل (ChatDatabase.init ما اتناداش) بنرجع للسلوك القديم مباشرة من Firestore.
+     */
+    private fun <T> observeCachedMessages(
+        chatKey: String,
+        query: Query,
+        fromDoc: (DocumentSnapshot) -> MessageEntity?,
+        keepMissingOnPrune: Boolean = false,
+        onSynced: suspend (List<MessageEntity>) -> Unit = {},
+        toModel: (MessageEntity) -> T
+    ): Flow<List<T>> = channelFlow {
+        val dao = ChatDatabase.dao()
+        val updates = Channel<List<MessageEntity>>(Channel.UNLIMITED)
+        val listener: ListenerRegistration = query.addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                // مع الكاش المحلي مش بنقفل الـ Flow لو النت قطع؛ بنكمل نعرض اللي متخزن
+                if (dao == null) close(error)
+                return@addSnapshotListener
+            }
+            val entities = snapshot?.documents?.mapNotNull(fromDoc) ?: emptyList()
+            if (dao == null) trySend(entities.sortedWith(chronological).map(toModel)) else updates.trySend(entities)
+        }
+        if (dao != null) {
+            launch(Dispatchers.IO) {
+                for (entities in updates) {
+                    try {
+                        dao.replaceSynced(chatKey, entities, keepMissingOnPrune)
+                        // الكتابة في Room نجحت — ساعتها بس نقدر نأكد الاستلام للسيرفر (لوضع الحذف بعد الاستلام)
+                        try { onSynced(entities) } catch (e: Exception) { e.printStackTrace() }
+                    } catch (e: Exception) { e.printStackTrace() }
+                }
+            }
+            launch {
+                dao.observe(chatKey).collect { rows -> send(rows.sortedWith(chronological).map(toModel)) }
+            }
+        }
+        awaitClose {
+            listener.remove()
+            updates.close()
+        }
+    }
+
+    private suspend fun cacheInsertPending(entity: MessageEntity) {
+        try { ChatDatabase.dao()?.upsert(entity) } catch (e: Exception) { e.printStackTrace() }
+    }
+
+    private suspend fun cacheMarkSynced(chatKey: String, id: String) {
+        try { ChatDatabase.dao()?.markSynced(chatKey, id) } catch (e: Exception) { e.printStackTrace() }
+    }
+
+    /** وقت السيرفر من المستند، أو 0 لو الكتابة لسه pending أو الحقل مش موجود (رسايل قديمة) */
+    private fun serverTimestampMillis(doc: DocumentSnapshot): Long =
+        doc.getTimestamp("serverTimestamp")?.toDate()?.time ?: 0L
+
+    private fun messageFromDoc(key: String): (DocumentSnapshot) -> MessageEntity? = { doc ->
+        doc.toObject(Message::class.java)?.let {
+            MessageEntity.fromMessage(key, it, doc.metadata.hasPendingWrites(), serverTimestampMillis(doc))
+        }
+    }
+
+    private fun groupMessageFromDoc(key: String): (DocumentSnapshot) -> MessageEntity? = { doc ->
+        doc.toObject(GroupMessage::class.java)?.let {
+            MessageEntity.fromGroupMessage(key, it, doc.metadata.hasPendingWrites(), serverTimestampMillis(doc))
+        }
+    }
+
+    // ---------------------------------------------------------------
     // رفع الملفات على Cloudflare (يستخدمها كل أنواع المرفقات: مستند، صورة، فيديو، صوت، ملصق)
     // ---------------------------------------------------------------
 
@@ -43,6 +134,7 @@ class ChatRepository {
 
     /** بيرفع الملف على الـ Worker وبيرجع رابطه العام. بيرمي Exception لو فشل الرفع أو الحجم أكبر من 20 ميجا. */
     suspend fun uploadFileToCloudflare(
+        context: Context,
         bytes: ByteArray,
         fileName: String,
         mimeType: String
@@ -51,15 +143,23 @@ class ChatRepository {
             throw Exception("حجم الملف أكبر من 20 ميجا")
         }
 
+        // ضغط المرفق قبل الرفع (صور/فيديو/صوت) — لو الضغط فشل أو ما وفّرش حاجة بنرفع الأصلي
+        val compressed = MediaCompressor.compressImageIfNeeded(bytes, fileName, mimeType)
+            ?: MediaCompressor.transcodeVideoIfNeeded(context, bytes, fileName, mimeType)
+            ?: MediaCompressor.transcodeAudioIfNeeded(context, bytes, fileName, mimeType)
+        val finalBytes = compressed?.first ?: bytes
+        val finalName = compressed?.second ?: fileName
+        val finalMime = compressed?.third ?: mimeType
+
         val idToken = FirebaseAuth.getInstance().currentUser
             ?.getIdToken(false)?.await()?.token ?: ""
 
-        val requestBody = bytes.toRequestBody(mimeType.toMediaTypeOrNull())
+        val requestBody = finalBytes.toRequestBody(finalMime.toMediaTypeOrNull())
         val request = Request.Builder()
             .url("$uploadApiBase/upload")
             .addHeader("Authorization", "Bearer $idToken")
-            .addHeader("X-File-Name", fileName)
-            .addHeader("X-File-Type", mimeType)
+            .addHeader("X-File-Name", finalName)
+            .addHeader("X-File-Type", finalMime)
             .post(requestBody)
             .build()
 
@@ -85,20 +185,25 @@ class ChatRepository {
         awaitClose { listener.remove() }
     }
 
-    /** بث لحظي (real-time) للرسائل بتاعة شات معين */
-    fun observeMessages(chatId: String): Flow<List<Message>> = callbackFlow {
-        val listener: ListenerRegistration = db.collection("chats")
-            .document(chatId)
+    /**
+     * بث لحظي (real-time) للرسائل بتاعة شات معين.
+     * الاستعلام بيفضل مرتب بـ timestamp (وقت التليفون) عشان الرسايل القديمة اللي مفيهاش
+     * serverTimestamp تفضل ظاهرة في النتايج، والترتيب النهائي بيتم محليًا بمفتاح السيرفر.
+     * myUid محتاجينه لوضع "الحذف بعد الاستلام" عشان نعرف الرسايل الجاية لينا.
+     */
+    fun observeMessages(chatId: String, myUid: String): Flow<List<Message>> {
+        val key = privateKey(chatId)
+        val query = db.collection("chats").document(chatId)
             .collection("messages")
             .orderBy("timestamp", Query.Direction.ASCENDING)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) { close(error); return@addSnapshotListener }
-                val messages = snapshot?.documents
-                    ?.mapNotNull { it.toObject(Message::class.java) }
-                    ?: emptyList()
-                trySend(messages)
-            }
-        awaitClose { listener.remove() }
+        return observeCachedMessages(
+            chatKey = key,
+            query = query,
+            fromDoc = messageFromDoc(key),
+            keepMissingOnPrune = AppConfig.DELETE_AFTER_DELIVERY,
+            onSynced = { entities -> ackAndPruneDelivered(chatId, myUid, entities) },
+            toModel = { it.toMessage() }
+        )
     }
 
     suspend fun getCurrentUserName(uid: String): String {
@@ -263,7 +368,9 @@ class ChatRepository {
             replyToSenderName = if (replyTo != null) replyToSenderName else "",
             forwarded = forwarded
         )
+        cacheInsertPending(MessageEntity.fromMessage(privateKey(chatId), message, true))
         docRef.set(message).await()
+        cacheMarkSynced(privateKey(chatId), message.id)
 
         // بعد ما الرسالة اتسجلت، ابعت إشعار push مباشر للمستقبل (بدون سيرفر)
         notifyReceiver(context, senderId, receiverId, previewText)
@@ -392,13 +499,81 @@ class ChatRepository {
         val unseen = messages.filter { it.receiverId == myUid && !it.seen }
         if (unseen.isEmpty()) return
 
-        val batch = db.batch()
-        unseen.forEach { message ->
-            val ref = db.collection("chats").document(chatId)
-                .collection("messages").document(message.id)
-            batch.update(ref, "seen", true)
+        try {
+            val batch = db.batch()
+            unseen.forEach { message ->
+                val ref = db.collection("chats").document(chatId)
+                    .collection("messages").document(message.id)
+                batch.update(ref, "seen", true)
+            }
+            batch.commit().await()
+        } catch (e: Exception) {
+            // في وضع "الحذف بعد الاستلام" ممكن رسالة تكون اتمسحت من السيرفر قبل ما تتعلّم مقروءة — مش مشكلة
+            e.printStackTrace()
         }
-        batch.commit().await()
+    }
+
+    // ---------------------------------------------------------------
+    // حذف الرسايل بعد الاستلام (Delete after delivery)
+    // مطفي افتراضيًا من AppConfig.DELETE_AFTER_DELIVERY لحد ما نبني نظام الباك اب.
+    // الفكرة: المستلم بيأكد الاستلام (deliveredTo) بعد ما الرسالة تتخزن فعلًا في كاش Room
+    // على تليفونه، وبعدها بيمسح نسخة السيرفر فورًا — المسح إجباري عشان السيرفر ميتمليش،
+    // وحماية الرسايل من الضياع جاية من باك اب Google Drive (مفعّل افتراضيًا)، مش من شرط هنا.
+    // الشاتات الخاصة بس؛ الجروبات (العام والمخصص) مش بتتمسح أصلًا في الوضع ده.
+    // ---------------------------------------------------------------
+
+    /** رسايل أكدنا استلامها في الجلسة دي، عشان منكررش كتابة الإقرار مع كل لقطة */
+    private val deliveredAckedIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    /**
+     * هل اليوزر مفعّل الباك اب؟ (users/{uid}.backupEnabled — افتراضيًا لأ)
+     * عند أي خطأ في القراءة بنرجع false — أمان: طالما مش متأكدين إن الباك اب شغال، منمسحش من السيرفر.
+     */
+    suspend fun isBackupEnabled(uid: String): Boolean {
+        return try {
+            db.collection("users").document(uid).get().await().getBoolean("backupEnabled") == true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    /** تفعيل/تعطيل باك اب Google Drive لليوزر — مستقل عن وضع الحذف بعد الاستلام */
+    suspend fun setBackupEnabled(uid: String, enabled: Boolean) {
+        db.collection("users").document(uid)
+            .set(mapOf("backupEnabled" to enabled), SetOptions.merge())
+            .await()
+    }
+
+    /**
+     * بتتنادى بعد ما لقطة رسايل الشات الخاص تتكتب بنجاح في Room (وده شرط أساسي —
+     * ممنوع نأكد استلام رسالة مش متخزنة محليًا). لكل رسالة جاية لي:
+     * 1) بنكتب إقرار استلام deliveredTo على مستند الرسالة.
+     * 2) بنمسح نسخة السيرفر فورًا (المسح إجباري).
+     * لو الإقرار أو المسح فشل، الرسالة بتفضل على السيرفر وبنحاول تاني مع اللقطة الجاية
+     * (أو بعد إعادة تشغيل التطبيق) — أمان أولًا: مسح غلط = فقدان رسالة للأبد.
+     */
+    private suspend fun ackAndPruneDelivered(chatId: String, myUid: String, entities: List<MessageEntity>) {
+        if (!AppConfig.DELETE_AFTER_DELIVERY) return
+        val incoming = entities.filter {
+            it.receiverId == myUid && !it.deleted && it.id !in deliveredAckedIds
+        }
+        if (incoming.isEmpty()) return
+
+        for (entity in incoming) {
+            try {
+                val ref = db.collection("chats").document(chatId)
+                    .collection("messages").document(entity.id)
+                // 1) إقرار الاستلام — بيحصل هنا بس، يعني بعد ما الكتابة في Room نجحت
+                ref.update("deliveredTo", com.google.firebase.firestore.FieldValue.arrayUnion(myUid)).await()
+                deliveredAckedIds.add(entity.id)
+
+                // 2) مسح نسخة السيرفر — النسخة المحلية عند الطرفين هي الباقية (والباك اب لو مفعّل)
+                ref.delete().await()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
     // ---------------------------------------------------------------
     // ميزة "بيكتب دلوقتي..." للجروب العام (ممكن أكتر من شخص يكتبوا مع بعض)
@@ -460,18 +635,11 @@ class ChatRepository {
     // ---------------------------------------------------------------
 
     /** بث لحظي لرسائل الجروب العام */
-    fun observeGroupMessages(): Flow<List<GroupMessage>> = callbackFlow {
-        val listener = db.collection("groups").document(GLOBAL_GROUP_ID)
+    fun observeGroupMessages(): Flow<List<GroupMessage>> {
+        val query = db.collection("groups").document(GLOBAL_GROUP_ID)
             .collection("messages")
             .orderBy("timestamp", Query.Direction.ASCENDING)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) { close(error); return@addSnapshotListener }
-                val messages = snapshot?.documents
-                    ?.mapNotNull { it.toObject(GroupMessage::class.java) }
-                    ?: emptyList()
-                trySend(messages)
-            }
-        awaitClose { listener.remove() }
+        return observeCachedMessages(globalKey, query, groupMessageFromDoc(globalKey)) { it.toGroupMessage() }
     }
 
     /** إرسال رسالة في الجروب العام */
@@ -510,7 +678,9 @@ class ChatRepository {
             fileType = fileType,
             durationMs = durationMs
         )
+        cacheInsertPending(MessageEntity.fromGroupMessage(globalKey, message, true))
         docRef.set(message).await()
+        cacheMarkSynced(globalKey, message.id)
 
         // بعد ما الرسالة اتسجلت، ابعت إشعار push لكل أعضاء الجروب (كل المستخدمين ما عدا اللي بعت)
         notifyGroupMembers(context, senderId, senderName, previewText)
@@ -661,18 +831,12 @@ class ChatRepository {
     }
 
     /** بث لحظي لرسائل جروب مخصص معين */
-    fun observeCustomGroupMessages(groupId: String): Flow<List<GroupMessage>> = callbackFlow {
-        val listener = db.collection("custom_groups").document(groupId)
+    fun observeCustomGroupMessages(groupId: String): Flow<List<GroupMessage>> {
+        val key = customGroupKey(groupId)
+        val query = db.collection("custom_groups").document(groupId)
             .collection("messages")
             .orderBy("timestamp", Query.Direction.ASCENDING)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) { close(error); return@addSnapshotListener }
-                val messages = snapshot?.documents
-                    ?.mapNotNull { it.toObject(GroupMessage::class.java) }
-                    ?: emptyList()
-                trySend(messages)
-            }
-        awaitClose { listener.remove() }
+        return observeCachedMessages(key, query, groupMessageFromDoc(key)) { it.toGroupMessage() }
     }
 
     /** إرسال رسالة في جروب مخصص */
@@ -715,7 +879,9 @@ class ChatRepository {
             fileType = fileType,
             durationMs = durationMs
         )
+        cacheInsertPending(MessageEntity.fromGroupMessage(customGroupKey(groupId), message, true))
         docRef.set(message).await()
+        cacheMarkSynced(customGroupKey(groupId), message.id)
 
         notifyCustomGroupMembers(context, groupId, senderId, senderName, previewText)
     }

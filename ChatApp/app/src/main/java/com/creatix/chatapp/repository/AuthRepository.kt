@@ -69,6 +69,7 @@ class AuthRepository {
     fun logout() {
         setOnlineStatus(false)
         auth.signOut()
+        com.creatix.chatapp.data.local.ChatDatabase.clearAsync()
     }
 
     /** يراقب حالة تسجيل الدخول أول ما التطبيق يفتح (onAuthStateChanged) */

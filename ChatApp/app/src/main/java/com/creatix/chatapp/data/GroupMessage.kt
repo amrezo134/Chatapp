@@ -1,5 +1,8 @@
 package com.creatix.chatapp.data
 
+import com.google.firebase.Timestamp
+import com.google.firebase.firestore.ServerTimestamp
+
 data class GroupMessage(
     val id: String = "",
     val senderId: String = "",
@@ -25,7 +28,11 @@ data class GroupMessage(
     val edited: Boolean = false,
     val deleted: Boolean = false,
     val forwarded: Boolean = false,
-    val reactions: Map<String, String> = emptyMap() // userId -> emoji
+    val reactions: Map<String, String> = emptyMap(), // userId -> emoji
+
+    /** زي Message.serverTimestamp — وقت السيرفر للترتيب بس، العرض بوقت التليفون */
+    @get:ServerTimestamp
+    val serverTimestamp: Timestamp? = null
 )
 // كل الجروب العام بيستخدم مستند ثابت واحد بالـ id ده
 const val GLOBAL_GROUP_ID = "global_group"

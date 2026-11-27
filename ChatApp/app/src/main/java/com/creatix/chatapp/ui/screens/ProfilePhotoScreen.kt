@@ -70,7 +70,7 @@ fun ProfilePhotoScreen(
             val bytes = withContext(Dispatchers.IO) { context.contentResolver.openInputStream(uri)?.readBytes() }
             val mime = context.contentResolver.getType(uri) ?: "image/jpeg"
             if (bytes != null) {
-                chatViewModel.updateMyPhoto(myUid, bytes, "profile.${mime.substringAfterLast('/')}", mime)
+                chatViewModel.updateMyPhoto(context, myUid, bytes, "profile.${mime.substringAfterLast('/')}", mime)
             }
             isUploadingPhoto = false
         }

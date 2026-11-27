@@ -10,12 +10,19 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -24,15 +31,24 @@ import androidx.compose.ui.Modifier
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.messaging.FirebaseMessaging
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.common.api.ApiException
+import com.creatix.chatapp.data.backup.DriveBackupManager
+import com.creatix.chatapp.repository.ChatRepository
+import kotlinx.coroutines.launch
 import com.creatix.chatapp.navigation.AppNavigation
 import com.creatix.chatapp.services.MyFirebaseMessagingService
 import com.creatix.chatapp.viewmodel.AuthViewModel
 import com.creatix.chatapp.repository.AiChatRepository
+import com.creatix.chatapp.data.local.ChatDatabase
 
 class MainActivity : ComponentActivity() {
 
     // الشات اللي لازم نفتحه لو اليوزر جاي من إشعار (state عشان يفضل يحدث الشاشة حتى لو مفيش recreate)
     private val pendingChatUid = mutableStateOf<String?>(null)
+
+    // اليوزر المسجل دخوله حاليًا (بيتحدث من AuthStateListener) — بنستخدمه لمنطق الباك اب
+    private val loggedInUid = mutableStateOf<String?>(null)
 
     /**
      * بتاخد التوكن الحالي وتحدّثه في Firestore لليوزر المسجل دخوله دلوقتي.
@@ -69,12 +85,16 @@ class MainActivity : ComponentActivity() {
         MyFirebaseMessagingService.ensureNotificationChannel(applicationContext)
         pendingChatUid.value = intent?.getStringExtra(MyFirebaseMessagingService.EXTRA_OPEN_CHAT_UID)
         AiChatRepository.init(applicationContext)
+        ChatDatabase.init(applicationContext)
 
         // بنحاول نحدّث التوكن فورًا (لو فيه جلسة دخول محفوظة ومسترجعة بالفعل)...
         refreshFcmToken()
         // ...وبرضو بنراقب أي تغيير في حالة تسجيل الدخول (زي استرجاع الجلسة بعد التثبيت الجديد
         // أو تسجيل دخول جديد) عشان نضمن إن التوكن هيتحدث حتى لو onCreate اتنفذ قبل الأوان
-        FirebaseAuth.getInstance().addAuthStateListener { refreshFcmToken() }
+        FirebaseAuth.getInstance().addAuthStateListener { auth ->
+            loggedInUid.value = auth.currentUser?.uid
+            refreshFcmToken()
+        }
 
         setContent {
             ChatAppTheme {
@@ -108,6 +128,81 @@ class MainActivity : ComponentActivity() {
                         onDispose {
                             ProcessLifecycleOwner.get().lifecycle.removeObserver(observer)
                         }
+                    }
+
+                    // ---------------- باك اب Google Drive ----------------
+                    val context = LocalContext.current
+                    val backupScope = rememberCoroutineScope()
+                    var showBackupPrompt by remember { mutableStateOf(false) }
+
+                    val driveSignInLauncher = rememberLauncherForActivityResult(
+                        contract = ActivityResultContracts.StartActivityForResult()
+                    ) { result ->
+                        val account = try {
+                            GoogleSignIn.getSignedInAccountFromIntent(result.data)
+                                .getResult(ApiException::class.java)
+                        } catch (e: ApiException) {
+                            e.printStackTrace()
+                            null
+                        }
+                        val uid = loggedInUid.value
+                        if (account != null && uid != null) {
+                            backupScope.launch {
+                                try { ChatRepository().setBackupEnabled(uid, true) } catch (e: Exception) { e.printStackTrace() }
+                                try {
+                                    val n = DriveBackupManager.backupNow(context, uid)
+                                    Toast.makeText(context, "اتعملت أول نسخة احتياطية ($n رسالة)", Toast.LENGTH_LONG).show()
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "الباك اب اتفعّل، بس أول نسخة فشلت: ${e.message}", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }
+                    }
+
+                    // بعد تسجيل الدخول: استرجاع تلقائي لو الكاش فاضي (تليفون جديد)،
+                    // نسخ تلقائي مرة كل يوم، وفي أول استخدام نسأله يفعّل الباك اب (مع إمكانية التخطي)
+                    LaunchedEffect(loggedInUid.value) {
+                        val uid = loggedInUid.value ?: return@LaunchedEffect
+                        if (DriveBackupManager.signedInAccount(context) != null) {
+                            DriveBackupManager.restoreIfEmpty(context)?.let { n ->
+                                Toast.makeText(context, "اتسترجعت $n رسالة من النسخة الاحتياطية", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                        val enabled = try { ChatRepository().isBackupEnabled(uid) } catch (e: Exception) { false }
+                        DriveBackupManager.autoBackupIfDue(context, uid, enabled)
+                        if (!DriveBackupManager.wasPromptShown(context) &&
+                            DriveBackupManager.signedInAccount(context) == null
+                        ) {
+                            showBackupPrompt = true
+                        }
+                    }
+
+                    if (showBackupPrompt) {
+                        AlertDialog(
+                            onDismissRequest = { /* لازم يختار: تفعيل أو تخطي صريح */ },
+                            title = { Text("نسخ احتياطي للرسايل؟") },
+                            text = {
+                                Text(
+                                    "نحفظ نسخة من رسايلك في Google Drive (مجلد مخفي خاص بالتطبيق، محدش غيرك يقدر يشوفه) " +
+                                        "عشان ترجعها لو التليفون ضاع أو سطبت التطبيق من جديد. ده مهم لأن الرسايل بتتمسح " +
+                                        "من السيرفر بعد ما توصل للطرف التاني."
+                                )
+                            },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    showBackupPrompt = false
+                                    DriveBackupManager.markPromptShown(context)
+                                    val client = GoogleSignIn.getClient(context, DriveBackupManager.signInOptions())
+                                    driveSignInLauncher.launch(client.signInIntent)
+                                }) { Text("فعّل النسخ الاحتياطي") }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = {
+                                    showBackupPrompt = false
+                                    DriveBackupManager.markPromptShown(context)
+                                }) { Text("تخطي") }
+                            }
+                        )
                     }
 
                     AppNavigation(

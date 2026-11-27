@@ -141,7 +141,8 @@ object AiChatRepository {
 
     // ---------------- Gemini (Firebase AI Logic - Gemini Developer API) ----------------
 
-    private const val GEMINI_MODEL = "gemini-2.5-flash"
+    // gemini-3.8-flash: الموديل المجاني الحالي (gemini-2.5-flash اتقفل/deprecated في أواخر 2026)
+    private const val GEMINI_MODEL = "gemini-3.8-flash"
     private const val HISTORY_LIMIT = 20
 
     private val geminiModel by lazy {
@@ -191,7 +192,9 @@ object AiChatRepository {
                 Result.success("المساعد وصل لحد الاستخدام المجاني دلوقتي ⏳ جرّب تاني بعد شوية.")
             } else {
                 // أي مشكلة تانية في Gemini (مفيش نت، الخدمة مش متفعلة...) → نرجع للبوت المحلي
-                localBotReply(lastUserMsg)
+                val fallback = localBotReply(lastUserMsg)
+                // مؤقت للتشخيص: بنعرض سبب فشل Gemini فوق رد البوت — يتشال بعد ما نلاقي السبب
+                fallback.map { "[Gemini error: ${e.javaClass.simpleName}: ${e.message}]\n\n$it" }
             }
         }
     }

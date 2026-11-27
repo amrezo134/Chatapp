@@ -150,9 +150,7 @@ object AiChatRepository {
     private const val ATTEMPTS_PER_MODEL = 2
     private const val RETRY_DELAY_MS = 1_500L
 
-    private val geminiModels = mutableMapOf<String, com.google.firebase.ai.type.GenerativeModel>()
-
-    private fun geminiModel(name: String) = geminiModels.getOrPut(name) {
+    private fun geminiModel(name: String) =
         Firebase.ai(backend = GenerativeBackend.googleAI()).generativeModel(
             modelName = name,
             systemInstruction = content {
@@ -162,7 +160,6 @@ object AiChatRepository {
                 )
             }
         )
-    }
 
     private suspend fun askGemini(history: List<AiChatMessage>, lastUserMsg: String): String {
         // السياق: آخر 20 رسالة حقيقية، وGemini بيشترط إن أول رسالة في المحادثة تكون من المستخدم

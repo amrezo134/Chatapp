@@ -9,6 +9,23 @@ android {
     namespace = "com.creatix.chatapp"
     compileSdk = 35
 
+    // توقيع ثابت في CI: لو GitHub Actions فكّ تشفير release.keystore من السيكرتس،
+    // الـ APK بيتوقّع بيه فيفضل الـ SHA-1 ثابت من بناء للتاني. لو الملف مش موجود
+    // (السيكرتس مش متظبطة لسه) بنكمل بمفتاح الديباج العادي — ومفيش حاجة بتبوظ.
+    val ciKeystoreFile = project.file("release.keystore")
+    val hasCiKeystore = ciKeystoreFile.exists()
+
+    signingConfigs {
+        if (hasCiKeystore) {
+            create("ci") {
+                storeFile = ciKeystoreFile
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
     defaultConfig {
         applicationId = "com.creatix.chatapp"
         minSdk = 26
@@ -18,6 +35,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            if (hasCiKeystore) {
+                signingConfig = signingConfigs.getByName("ci")
+            }
+        }
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")

@@ -195,7 +195,7 @@ object AiChatRepository {
 
     /** البوت المحلي القديم (كلمات مفتاحية من train-38762) — احتياطي لو Gemini مش متاح. */
     private suspend fun localBotReply(lastUserMsg: String): Result<String> {
-        try {
+        return try {
 
             val knowledge = loadKnowledge()
                 ?: return Result.success(NOT_READY_FALLBACK)

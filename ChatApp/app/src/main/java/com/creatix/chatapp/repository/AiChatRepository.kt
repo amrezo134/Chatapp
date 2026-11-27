@@ -2,8 +2,12 @@ package com.creatix.chatapp.repository
 
 import android.content.Context
 import com.creatix.chatapp.data.AiChatMessage
+import com.google.firebase.Firebase
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
+import com.google.firebase.ai.ai
+import com.google.firebase.ai.type.GenerativeBackend
+import com.google.firebase.ai.type.content
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.QuerySnapshot
 import kotlinx.coroutines.Dispatchers
@@ -11,15 +15,17 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 
 /**
- * مساعد ذكي محلي بالكامل — مفيش أي اتصال بأي AI خارجي (لا Gemini ولا DeepSeek ولا غيره).
+ * مساعد ذكي: Gemini هو الأساسي (Firebase AI Logic - Gemini Developer API، مجاني،
+ * مفيش API key جوه التطبيق)، وبوت محلي بالكلمات المفتاحية كاحتياطي لو Gemini
+ * مش متاح لأي سبب (مفيش نت، الخدمة مش متفعلة في الكونسول... إلخ).
  *
- * بيانات التدريب (كلمات مفتاحية -> رد) متخزنة في مشروع Firebase منفصل تمامًا
- * عن باقي التطبيق — اسمه train-38762 — عشان يبقى مخصص لبيانات البوت بس.
+ * بيانات البوت الاحتياطي (كلمات مفتاحية -> رد) متخزنة في مشروع Firebase منفصل
+ * تمامًا عن باقي التطبيق — اسمه train-38762 — عشان يبقى مخصص لبيانات البوت بس.
  * التطبيق بيسحبها مرة، بيكاشها 5 دقايق، وبيطابقها محليًا مع رسالة المستخدم.
  *
  * لازم تنادي AiChatRepository.init(context) مرة واحدة الأول (مثلاً في
  * onCreate بتاع MainActivity) قبل ما تستخدم شاشة البوت، عشان يوصل قاعدة
- * train-38762. لو نسيت تناديها، البوت هيرجع رسالة "مش جاهز لسه" بدل ما يكرش.
+ * train-38762. لو نسيت تناديها، الاحتياطي هيرجع رسالة "مش جاهز لسه" بدل ما يكرش.
  */
 object AiChatRepository {
 
@@ -132,19 +138,67 @@ object AiChatRepository {
             .trim()
     }
 
+    // ---------------- Gemini (Firebase AI Logic - Gemini Developer API) ----------------
+
+    private const val GEMINI_MODEL = "gemini-2.5-flash"
+    private const val HISTORY_LIMIT = 20
+
+    private val geminiModel by lazy {
+        Firebase.ai(backend = GenerativeBackend.googleAI()).generativeModel(
+            modelName = GEMINI_MODEL,
+            systemInstruction = content {
+                text(
+                    "أنت مساعد ذكي ودود جوه تطبيق دردشة اسمه Chatapp. " +
+                        "رد بلغة المستخدم (افتراضيًا العربي) بشكل مختصر ومفيد وودود."
+                )
+            }
+        )
+    }
+
+    private suspend fun askGemini(history: List<AiChatMessage>, lastUserMsg: String): String {
+        // السياق: آخر 20 رسالة حقيقية، وGemini بيشترط إن أول رسالة في المحادثة تكون من المستخدم
+        val mapped = history.dropLast(1)
+            .filter { it.text.isNotBlank() && !it.isError }
+            .map { content(role = if (it.isFromUser) "user" else "model") { text(it.text) } }
+        val firstUserIdx = mapped.indexOfFirst { it.role == "user" }
+        val chatHistory = if (firstUserIdx >= 0) mapped.drop(firstUserIdx).takeLast(HISTORY_LIMIT) else emptyList()
+
+        val response = geminiModel.startChat(chatHistory).sendMessage(lastUserMsg)
+        return response.text?.trim().takeUnless { it.isNullOrBlank() }
+            ?: throw Exception("Empty Gemini response")
+    }
+
     /**
      * نفس توقيع الدالة القديمة بالظبط عشان AiChatViewModel يفضل شغال من غير أي تعديل.
-     * history: كل الرسائل لحد دلوقتي — إحنا بناخد آخر رسالة من المستخدم بس ونطابقها.
+     * history: كل الرسائل لحد دلوقتي — Gemini بياخدها كلها كسياق محادثة.
      */
     suspend fun sendMessage(history: List<AiChatMessage>): Result<String> = withContext(Dispatchers.IO) {
+        val lastUserMsg = history.lastOrNull { it.isFromUser }?.text.orEmpty()
+        if (lastUserMsg.isBlank()) {
+            return@withContext Result.success(GENERIC_FALLBACK)
+        }
         try {
-            val lastUserMsg = history.lastOrNull { it.isFromUser }?.text.orEmpty()
-            if (lastUserMsg.isBlank()) {
-                return@withContext Result.success(GENERIC_FALLBACK)
+            Result.success(askGemini(history, lastUserMsg))
+        } catch (e: Exception) {
+            val name = e.javaClass.simpleName
+            val msg = e.message.orEmpty()
+            val quotaHit = name.contains("quota", true) ||
+                msg.contains("429") || msg.contains("quota", true) || msg.contains("rate limit", true)
+            if (quotaHit) {
+                Result.success("المساعد وصل لحد الاستخدام المجاني دلوقتي ⏳ جرّب تاني بعد شوية.")
+            } else {
+                // أي مشكلة تانية في Gemini (مفيش نت، الخدمة مش متفعلة...) → نرجع للبوت المحلي
+                localBotReply(lastUserMsg)
             }
+        }
+    }
+
+    /** البوت المحلي القديم (كلمات مفتاحية من train-38762) — احتياطي لو Gemini مش متاح. */
+    private suspend fun localBotReply(lastUserMsg: String): Result<String> {
+        try {
 
             val knowledge = loadKnowledge()
-                ?: return@withContext Result.success(NOT_READY_FALLBACK)
+                ?: return Result.success(NOT_READY_FALLBACK)
 
             val normMsg = normalizeArabic(lastUserMsg)
 

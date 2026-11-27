@@ -67,6 +67,8 @@ dependencies {
     // Coroutines
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
+    // Firebase AI Logic (Gemini Developer API) — مساعد Gemini في شاشة الـ AI
+    implementation("com.google.firebase:firebase-ai:16.0.0")
 
     // Room (SQLite) - الكاش المحلي للرسايل
     implementation("androidx.room:room-runtime:2.6.1")
